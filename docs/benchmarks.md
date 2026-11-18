@@ -30,3 +30,19 @@ Target from the plan: p95 < 100 ms. Met with a wide margin on this dataset.
 Limits of this measurement: single client (no concurrency), a few thousand bookings rather than
 millions, co-located services. The `booking_resources` GiST index (created by the exclusion constraint)
 serves the busy-time lookup. Concurrent-load numbers (k6) arrive in M8.
+
+## Booking under contention (M3)
+
+Reproduce (same database as above, after `seed`):
+
+```bash
+pnpm --filter @slotflow/api bench:booking
+```
+
+Result (2026-11-18, same machine as above; API, PostgreSQL and clients on one 2-vCPU box):
+
+- Load: 1,000 `POST /bookings` from 50 concurrent clients over 20 contended (staff, time) slots, so 50 requests fight for each slot.
+- Outcome: 20 × `201`, 980 × `409 SLOT_UNAVAILABLE`, no other status. Exactly 20 confirmed bookings, 0 overlapping `booking_resources` rows (the run aborts if either invariant breaks).
+- Throughput 148 req/s; latency p50 305 ms, p95 512 ms, p99 908 ms. These are latencies under 50-way queueing on 2 shared vCPUs (load generator included), not single-request latency.
+
+Integration tests assert the same invariants: 100 parallel requests for one slot give exactly one success; 1,000 requests over 50 slots give exactly 50 bookings.

@@ -40,6 +40,7 @@ const service = z.object({
   bufferAfterMin: z.number().int().min(0).default(0),
   priceCents: z.number().int().min(0).default(0),
   cancelWindowHours: z.number().int().min(0).default(24),
+  lateCancelFeePercent: z.number().int().min(0).max(100).default(50),
   requiresResourceType: z.string().min(1).nullable().optional(),
 });
 const staff = z.object({

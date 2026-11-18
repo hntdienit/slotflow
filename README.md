@@ -10,7 +10,7 @@ guarded AI booking assistant (Vietnamese + English).
 
 ## Status
 
-Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed) and **M2** (availability engine) done. Roadmap: catalog & RLS → availability engine → safe booking →
+Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) done. Roadmap: catalog & RLS → availability engine → safe booking →
 background jobs → waitlist → AI assistant → UI → polish. All data is fake.
 
 ## Quick start
@@ -37,7 +37,8 @@ domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 - [ADR-002 Double-booking prevention](docs/adr/0002-double-booking-prevention.md)
 - [ADR-003 Data access: Prisma ORM + SQL migrations](docs/adr/0003-data-access.md)
 - [ADR-004 Availability engine, DST and cache](docs/adr/0004-availability-engine.md)
+- [ADR-005 Booking lifecycle, holds and idempotency](docs/adr/0005-booking-lifecycle.md)
 
 ## Benchmarks
 
-Availability (7-day query, 4.7k bookings): p95 11 ms from Postgres, 1.7 ms cached. Details and method in [docs/benchmarks.md](docs/benchmarks.md).
+Availability (7-day query, 4.7k bookings): p95 11 ms from Postgres, 1.7 ms cached. Booking under contention (1,000 requests, 20 slots, 50 clients): exactly 20 bookings, 0 overlaps, 148 req/s. Details and method in [docs/benchmarks.md](docs/benchmarks.md).

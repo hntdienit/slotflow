@@ -206,16 +206,13 @@ describe("GET /branches/:id/availability", () => {
 
   it("branch closure and staff time off remove slots", async () => {
     const day = "2036-03-17";
-    const off = await http()
-      .post("/admin/time-off")
-      .set({ "x-tenant-id": w.tenant })
-      .send({
-        ownerType: "staff",
-        ownerId: w.staffA,
-        startAt: "2036-03-16T22:00:00Z",
-        endAt: "2036-03-17T00:00:00Z",
-        reason: "leave",
-      });
+    const off = await http().post("/admin/time-off").set({ "x-tenant-id": w.tenant }).send({
+      ownerType: "staff",
+      ownerId: w.staffA,
+      startAt: "2036-03-16T22:00:00Z",
+      endAt: "2036-03-17T00:00:00Z",
+      reason: "leave",
+    });
     expect(off.status).toBe(201);
     const res = await get({ serviceId: w.svc30, from: day, to: day });
     expect(
@@ -223,15 +220,12 @@ describe("GET /branches/:id/availability", () => {
         s.staffOptions.every((x) => x === w.staffB),
       ),
     ).toBe(true);
-    await http()
-      .post("/admin/time-off")
-      .set({ "x-tenant-id": w.tenant })
-      .send({
-        ownerType: "branch",
-        ownerId: w.branch,
-        startAt: "2036-03-16T00:00:00Z",
-        endAt: "2036-03-18T00:00:00Z",
-      });
+    await http().post("/admin/time-off").set({ "x-tenant-id": w.tenant }).send({
+      ownerType: "branch",
+      ownerId: w.branch,
+      startAt: "2036-03-16T00:00:00Z",
+      endAt: "2036-03-18T00:00:00Z",
+    });
     expect((await get({ serviceId: w.svc30, from: day, to: day })).body.slots).toEqual([]);
   });
 
@@ -303,15 +297,12 @@ describe("availability cache", () => {
     expect(second.headers["x-cache"]).toBe("hit");
     expect(second.body.slots).toEqual(first.body.slots);
 
-    await request(app.getHttpServer())
-      .post("/admin/time-off")
-      .set("x-tenant-id", w.tenant)
-      .send({
-        ownerType: "branch",
-        ownerId: w.branch,
-        startAt: "2036-04-06T00:00:00Z",
-        endAt: "2036-04-09T00:00:00Z",
-      });
+    await request(app.getHttpServer()).post("/admin/time-off").set("x-tenant-id", w.tenant).send({
+      ownerType: "branch",
+      ownerId: w.branch,
+      startAt: "2036-04-06T00:00:00Z",
+      endAt: "2036-04-09T00:00:00Z",
+    });
     const third = await get(app);
     expect(third.headers["x-cache"]).toBe("miss"); // version bumped
     expect(third.body.slots).toEqual([]);

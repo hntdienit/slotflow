@@ -34,6 +34,7 @@ export interface SlotDto {
   startLocal: string;
   staffId: string;
   resourceId: string | null;
+  resourceOptions: string[];
   staffOptions: string[];
 }
 
@@ -99,7 +100,12 @@ export class AvailabilityService {
       throw new BadRequestException(`range is limited to ${MAX_RANGE_DAYS} days`);
   }
 
-  async compute(tenantId: string, q: AvailabilityQuery): Promise<AvailabilityResult> {
+  /** `excludeBookingId`: ignore one booking's own rows (used when rescheduling it). */
+  async compute(
+    tenantId: string,
+    q: AvailabilityQuery,
+    opts: { excludeBookingId?: string } = {},
+  ): Promise<AvailabilityResult> {
     return this.db.withTenant(tenantId, async (tx) => {
       const branch = await tx.branch.findUnique({ where: { id: q.branchId } });
       if (!branch) throw new NotFoundException("branch not found");
@@ -156,6 +162,7 @@ export class AvailabilityService {
           [...staffIds, ...(resources?.map((r) => r.id) ?? [])],
           rangeStart,
           rangeEndExact,
+          opts.excludeBookingId,
         ),
       ]);
 
@@ -209,6 +216,7 @@ export class AvailabilityService {
           startLocal: formatLocal(s.start, tz),
           staffId: s.staffId,
           resourceId: s.resourceId,
+          resourceOptions: s.resourceOptions,
           staffOptions: s.staffOptions,
         })),
       };
@@ -219,7 +227,7 @@ export class AvailabilityService {
    * Time already taken on staff/resources. Held bookings whose hold has expired no longer block
    * (the exclusion constraint cannot use now(); expiry is applied here and in the booking tx, ADR-002).
    */
-  private busy(tx: Tx, ids: string[], from: number, to: number) {
+  private busy(tx: Tx, ids: string[], from: number, to: number, excludeBookingId?: string) {
     return tx.$queryRaw<{ resource_id: string; s: Date; e: Date }[]>(Prisma.sql`
       SELECT br.resource_id::text AS resource_id, lower(br.time_range) AS s, upper(br.time_range) AS e
       FROM booking_resources br
@@ -227,7 +235,8 @@ export class AvailabilityService {
       WHERE br.resource_id = ANY(${ids}::uuid[])
         AND br.status IN ('held','confirmed')
         AND br.time_range && tstzrange(${new Date(from)}::timestamptz, ${new Date(to)}::timestamptz)
-        AND NOT (br.status = 'held' AND b.hold_expires_at IS NOT NULL AND b.hold_expires_at <= now())`);
+        AND NOT (br.status = 'held' AND b.hold_expires_at IS NOT NULL AND b.hold_expires_at <= now())
+        AND (${excludeBookingId ?? null}::uuid IS NULL OR br.booking_id <> ${excludeBookingId ?? null}::uuid)`);
   }
 }
 

@@ -36,6 +36,8 @@ export interface Slot {
   /** Staff assigned by load balancing (least booked time first). */
   staffId: string;
   resourceId: string | null;
+  /** Every resource free over the whole occupied range, least loaded first (booking tries them in order). */
+  resourceOptions: string[];
   /** Every staff member who could take this slot, for "choose a specific person" UIs. */
   staffOptions: string[];
 }
@@ -105,10 +107,12 @@ export function computeAvailability(input: AvailabilityInput): Slot[] {
   for (const start of [...byStart.keys()].sort((a, b) => a - b)) {
     const occ = occupiedRange(start, service);
     let resourceId: string | null = null;
+    let resourceOptions: string[] = [];
     if (resources) {
       const free = resources.filter((r) => isFree(r.busy, occ)).sort(byLoad(resourceLoad));
       if (free.length === 0) continue;
       resourceId = free[0]!.id;
+      resourceOptions = free.map((r) => r.id);
     }
     const options = byStart
       .get(start)!
@@ -120,6 +124,7 @@ export function computeAvailability(input: AvailabilityInput): Slot[] {
       end: start + dur,
       staffId: options[0]!,
       resourceId,
+      resourceOptions,
       staffOptions: options,
     });
   }

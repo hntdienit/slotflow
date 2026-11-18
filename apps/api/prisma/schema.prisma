@@ -3,8 +3,8 @@
 // schema-drift.int.test.ts fails if it disagrees with the migrated database.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   moduleFormat = "cjs"
 }
 
@@ -73,6 +73,7 @@ model Service {
   bufferAfterMin       Int      @default(0) @map("buffer_after_min")
   priceCents           Int      @default(0) @map("price_cents")
   cancelWindowHours    Int      @default(24) @map("cancel_window_hours")
+  lateCancelFeePercent Int      @default(50) @map("late_cancel_fee_percent")
   requiresResourceType String?  @map("requires_resource_type")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -146,19 +147,22 @@ model Customer {
 }
 
 model Booking {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
-  branchId       String    @map("branch_id") @db.Uuid
-  customerId     String    @map("customer_id") @db.Uuid
-  serviceId      String    @map("service_id") @db.Uuid
-  status         String
-  startAt        DateTime  @map("start_at") @db.Timestamptz(6)
-  endAt          DateTime  @map("end_at") @db.Timestamptz(6)
-  holdExpiresAt  DateTime? @map("hold_expires_at") @db.Timestamptz(6)
-  idempotencyKey String?   @map("idempotency_key")
-  source         String    @default("web")
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  branchId             String    @map("branch_id") @db.Uuid
+  customerId           String    @map("customer_id") @db.Uuid
+  serviceId            String    @map("service_id") @db.Uuid
+  status               String
+  startAt              DateTime  @map("start_at") @db.Timestamptz(6)
+  endAt                DateTime  @map("end_at") @db.Timestamptz(6)
+  holdExpiresAt        DateTime? @map("hold_expires_at") @db.Timestamptz(6)
+  idempotencyKey       String?   @map("idempotency_key")
+  requestHash          String?   @map("request_hash")
+  cancelledAt          DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancellationFeeCents Int?      @map("cancellation_fee_cents")
+  source               String    @default("web")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   @@map("bookings")
 }

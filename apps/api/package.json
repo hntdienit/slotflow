@@ -17,6 +17,7 @@
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "seed:bookings": "tsx src/seed-bookings-cli.ts",
+    "bench:booking": "tsc -p tsconfig.json && node dist/bench/booking-bench.js",
     "bench:availability": "tsc -p tsconfig.json && node dist/bench/availability-bench.js",
     "build:watch": "tsc -p tsconfig.json --watch --preserveWatchOutput"
   },
