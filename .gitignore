@@ -5,3 +5,4 @@ dist
 .superpowers
 coverage
 apps/api/src/generated
+dump.rdb
