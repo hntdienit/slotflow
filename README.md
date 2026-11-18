@@ -22,7 +22,8 @@ curl localhost:3000/health
 curl -H 'x-tenant-id: <tenant uuid>' localhost:3000/admin/branches   # dev-only tenant header
 ```
 
-Local dev: `pnpm install && pnpm lint && pnpm typecheck && pnpm test`.
+Local dev: `pnpm install` (generates the Prisma client) then `pnpm lint && pnpm typecheck && pnpm test`
+(integration tests need a local PostgreSQL; set `TEST_ADMIN_URL`).
 
 ## Layout
 
@@ -33,4 +34,4 @@ domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 
 - [ADR-001 Modular monolith](docs/adr/0001-modular-monolith.md)
 - [ADR-002 Double-booking prevention](docs/adr/0002-double-booking-prevention.md)
-- [ADR-003 Data access: Drizzle ORM + SQL migrations](docs/adr/0003-data-access.md)
+- [ADR-003 Data access: Prisma ORM + SQL migrations](docs/adr/0003-data-access.md)

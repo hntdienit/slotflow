@@ -1,0 +1,247 @@
+// DDL source of truth: apps/api/migrations/*.sql (RLS policies, exclusion constraints, partial
+// indexes and composite tenant FKs cannot be expressed here). This file is the typed query layer;
+// schema-drift.int.test.ts fails if it disagrees with the migrated database.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Tenant {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  email        String
+  role         String
+  passwordHash String?  @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model Branch {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  name      String
+  timezone  String
+  address   String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("branches")
+}
+
+model ManagerBranch {
+  tenantId String @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+  branchId String @map("branch_id") @db.Uuid
+
+  @@id([userId, branchId])
+  @@map("manager_branches")
+}
+
+model Staff {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  fullName  String   @map("full_name")
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("staff")
+}
+
+model Service {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  name                 String
+  durationMin          Int      @map("duration_min")
+  bufferBeforeMin      Int      @default(0) @map("buffer_before_min")
+  bufferAfterMin       Int      @default(0) @map("buffer_after_min")
+  priceCents           Int      @default(0) @map("price_cents")
+  cancelWindowHours    Int      @default(24) @map("cancel_window_hours")
+  requiresResourceType String?  @map("requires_resource_type")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("services")
+}
+
+model StaffBranch {
+  tenantId String @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  staffId  String @map("staff_id") @db.Uuid
+  branchId String @map("branch_id") @db.Uuid
+
+  @@id([staffId, branchId])
+  @@map("staff_branches")
+}
+
+model StaffService {
+  tenantId  String @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  staffId   String @map("staff_id") @db.Uuid
+  serviceId String @map("service_id") @db.Uuid
+
+  @@id([staffId, serviceId])
+  @@map("staff_services")
+}
+
+model Resource {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  type      String
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("resources")
+}
+
+model WorkingHours {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  ownerType  String   @map("owner_type")
+  ownerId    String   @map("owner_id") @db.Uuid
+  weekday    Int      @db.SmallInt
+  startLocal DateTime @map("start_local") @db.Time(6)
+  endLocal   DateTime @map("end_local") @db.Time(6)
+
+  @@map("working_hours")
+}
+
+model TimeOff {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  ownerType String   @map("owner_type")
+  ownerId   String   @map("owner_id") @db.Uuid
+  startAt   DateTime @map("start_at") @db.Timestamptz(6)
+  endAt     DateTime @map("end_at") @db.Timestamptz(6)
+  reason    String?
+
+  // `range` (generated tstzrange) is intentionally unmapped; availability queries use raw SQL on it.
+  @@map("time_off")
+}
+
+model Customer {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  fullName  String   @map("full_name")
+  email     String?
+  phone     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("customers")
+}
+
+model Booking {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  branchId       String    @map("branch_id") @db.Uuid
+  customerId     String    @map("customer_id") @db.Uuid
+  serviceId      String    @map("service_id") @db.Uuid
+  status         String
+  startAt        DateTime  @map("start_at") @db.Timestamptz(6)
+  endAt          DateTime  @map("end_at") @db.Timestamptz(6)
+  holdExpiresAt  DateTime? @map("hold_expires_at") @db.Timestamptz(6)
+  idempotencyKey String?   @map("idempotency_key")
+  source         String    @default("web")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("bookings")
+}
+
+model BookingResource {
+  id         String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String                   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  bookingId  String                   @map("booking_id") @db.Uuid
+  resourceId String                   @map("resource_id") @db.Uuid
+  timeRange  Unsupported("tstzrange") @map("time_range")
+  status     String
+
+  // Rows are written with raw SQL (tstzrange is Unsupported in Prisma); see ADR-002 / M3.
+  @@map("booking_resources")
+}
+
+model BookingEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  bookingId  String   @map("booking_id") @db.Uuid
+  fromStatus String?  @map("from_status")
+  toStatus   String   @map("to_status")
+  actor      String?
+  payload    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("booking_events")
+}
+
+model WaitlistEntry {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  branchId    String   @map("branch_id") @db.Uuid
+  serviceId   String   @map("service_id") @db.Uuid
+  customerId  String   @map("customer_id") @db.Uuid
+  staffId     String?  @map("staff_id") @db.Uuid
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  windowEnd   DateTime @map("window_end") @db.Timestamptz(6)
+  status      String   @default("waiting")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("waitlist_entries")
+}
+
+model WaitlistOffer {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  entryId   String   @map("entry_id") @db.Uuid
+  bookingId String   @map("booking_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  status    String   @default("open")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("waitlist_offers")
+}
+
+model Notification {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  bookingId    String?   @map("booking_id") @db.Uuid
+  type         String
+  channel      String
+  dedupeKey    String    @map("dedupe_key")
+  status       String    @default("pending")
+  attempts     Int       @default(0)
+  lastError    String?   @map("last_error")
+  payload      Json      @default("{}")
+  scheduledFor DateTime? @map("scheduled_for") @db.Timestamptz(6)
+  sentAt       DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, dedupeKey])
+  @@map("notifications")
+}
+
+model OutboxEvent {
+  seq          BigInt    @id @default(autoincrement())
+  tenantId     String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  type         String
+  payload      Json
+  attempts     Int       @default(0)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  dispatchedAt DateTime? @map("dispatched_at") @db.Timestamptz(6)
+
+  @@map("outbox_events")
+}

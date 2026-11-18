@@ -1,6 +1,4 @@
-import type { PgTable } from "drizzle-orm/pg-core";
 import { z } from "zod";
-import * as t from "../db/schema";
 
 const uuid = z.string().uuid();
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, "expected HH:MM");
@@ -13,19 +11,25 @@ const timezone = z.string().refine((v) => {
   }
 }, "invalid IANA timezone");
 const ownerType = z.enum(["branch", "staff"]);
+/** "HH:MM" -> Date on 1970-01-01 UTC: how Prisma represents Postgres `time`. */
+const localTime = hhmm.transform((v) => new Date(`1970-01-01T${v.length === 5 ? `${v}:00` : v}Z`));
+const uuidFilter = uuid;
 const instant = z
   .string()
   .datetime({ offset: true })
   .transform((s) => new Date(s));
 
 export interface EntityDef {
-  table: PgTable;
+  /** Prisma delegate name on the client (e.g. `workingHours`) */
+  model: string;
   create: z.ZodTypeAny;
   update: z.ZodTypeAny;
-  /** property names usable as equality filters on list */
-  filters: string[];
+  /** query params usable as equality filters on list, with their validators */
+  filters: Record<string, z.ZodTypeAny>;
   /** property names to order by (id is always appended) */
   orderBy: string[];
+  /** Postgres `time` columns: Prisma gives Dates, the API speaks "HH:MM" */
+  timeFields?: string[];
 }
 
 const branch = z.object({ name: z.string().min(1), timezone, address: z.string().optional() });
@@ -48,8 +52,8 @@ const workingHours = z.object({
   ownerType,
   ownerId: uuid,
   weekday: z.number().int().min(1).max(7),
-  startLocal: hhmm,
-  endLocal: hhmm,
+  startLocal: localTime,
+  endLocal: localTime,
 });
 const timeOff = z.object({
   ownerType,
@@ -66,55 +70,56 @@ const customer = z.object({
 
 export const ENTITIES: Record<string, EntityDef> = {
   branches: {
-    table: t.branches,
+    model: "branch",
     create: branch,
     update: branch.partial(),
-    filters: [],
+    filters: {},
     orderBy: ["name"],
   },
   services: {
-    table: t.services,
+    model: "service",
     create: service,
     update: service.partial(),
-    filters: [],
+    filters: {},
     orderBy: ["name"],
   },
   staff: {
-    table: t.staff,
+    model: "staff",
     create: staff,
     update: staff.partial(),
-    filters: [],
+    filters: {},
     orderBy: ["fullName"],
   },
   resources: {
-    table: t.resources,
+    model: "resource",
     create: resource,
     update: resource.partial(),
-    filters: ["branchId", "type"],
+    filters: { branchId: uuidFilter, type: z.string().min(1) },
     orderBy: ["name"],
   },
   "working-hours": {
-    table: t.workingHours,
+    model: "workingHours",
     create: workingHours.refine(
       (v) => v.endLocal > v.startLocal,
       "endLocal must be after startLocal",
     ),
     update: workingHours.partial(),
-    filters: ["ownerType", "ownerId", "weekday"],
+    filters: { ownerType, ownerId: uuidFilter, weekday: z.coerce.number().int().min(1).max(7) },
     orderBy: ["weekday", "startLocal"],
+    timeFields: ["startLocal", "endLocal"],
   },
   "time-off": {
-    table: t.timeOff,
+    model: "timeOff",
     create: timeOff.refine((v) => v.endAt > v.startAt, "endAt must be after startAt"),
     update: timeOff.partial(),
-    filters: ["ownerType", "ownerId"],
+    filters: { ownerType, ownerId: uuidFilter },
     orderBy: ["startAt"],
   },
   customers: {
-    table: t.customers,
+    model: "customer",
     create: customer,
     update: customer.partial(),
-    filters: [],
+    filters: {},
     orderBy: ["fullName"],
   },
 };

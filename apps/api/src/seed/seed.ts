@@ -1,19 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-import * as schema from "../db/schema";
-import {
-  branches,
-  customers,
-  resources,
-  services,
-  staff,
-  staffBranches,
-  staffServices,
-  tenants,
-  workingHours,
-} from "../db/schema";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "../generated/prisma/client";
+
+/** Postgres `time` is a Date on 1970-01-01 UTC in Prisma. */
+const tm = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00Z`);
 
 /** Deterministic PRNG so the seed is reproducible. */
 function rng(seed: number) {
@@ -172,132 +162,126 @@ export interface SeedSummary {
 }
 
 /**
- * Seeds fake clinic data. `adminUrl` must be a superuser / BYPASSRLS role (needed to read tenants
- * before knowing their ids), but each tenant is still written under its own app.tenant_id.
+ * Seeds fake clinic data. `adminUrl` must be a superuser / BYPASSRLS role (needed to look tenants up
+ * before their ids are known), but each tenant is still written under its own app.tenant_id.
  */
 export async function seed(adminUrl: string): Promise<SeedSummary> {
   const summary: SeedSummary = { created: [], skipped: [] };
-  const pool = new Pool({ connectionString: adminUrl, max: 2 });
-  const db = drizzle(pool, { schema });
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: adminUrl, max: 2 }),
+  });
   try {
     for (const [idx, def] of TENANTS.entries()) {
-      const exists = await db
-        .select({ id: tenants.id })
-        .from(tenants)
-        .where(eq(tenants.slug, def.slug));
-      if (exists.length) {
+      if (await prisma.tenant.findUnique({ where: { slug: def.slug } })) {
         summary.skipped.push(def.slug);
         continue;
       }
-      await seedTenant(db, def, rng(1000 + idx));
+      await seedTenant(prisma, def, rng(1000 + idx));
       summary.created.push(def.slug);
     }
   } finally {
-    await pool.end();
+    await prisma.$disconnect();
   }
   return summary;
 }
 
-async function seedTenant(
-  db: ReturnType<typeof drizzle<typeof schema>>,
-  def: TenantDef,
-  rand: () => number,
-) {
+async function seedTenant(prisma: PrismaClient, def: TenantDef, rand: () => number) {
   const pick = <T>(arr: T[]): T => arr[Math.floor(rand() * arr.length)] as T;
   const tenantId = randomUUID();
-  await db.transaction(async (tx) => {
-    await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
-    await tx.insert(tenants).values({ id: tenantId, name: def.name, slug: def.slug });
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`select set_config('app.tenant_id', ${tenantId}, true)`;
+      await tx.tenant.create({ data: { id: tenantId, name: def.name, slug: def.slug } });
 
-    const branchIds: string[] = [];
-    for (const b of def.branches) {
-      const [row] = await tx
-        .insert(branches)
-        .values({ name: b.name, timezone: b.tz, address: b.address })
-        .returning({ id: branches.id });
-      const id = row!.id;
-      branchIds.push(id);
-      // Branch opening hours (local time): Mon-Fri 08:00-17:00, Sat 08:00-12:00.
-      await tx
-        .insert(workingHours)
-        .values([
-          ...[1, 2, 3, 4, 5].map((weekday) => ({
-            ownerType: "branch" as const,
-            ownerId: id,
-            weekday,
-            startLocal: "08:00",
-            endLocal: "17:00",
-          })),
-          {
-            ownerType: "branch" as const,
-            ownerId: id,
-            weekday: 6,
-            startLocal: "08:00",
-            endLocal: "12:00",
+      const branchIds: string[] = [];
+      for (const b of def.branches) {
+        const { id } = await tx.branch.create({
+          data: { name: b.name, timezone: b.tz, address: b.address },
+        });
+        branchIds.push(id);
+        // Branch opening hours (local time): Mon-Fri 08:00-17:00, Sat 08:00-12:00.
+        await tx.workingHours.createMany({
+          data: [
+            ...[1, 2, 3, 4, 5].map((weekday) => ({
+              ownerType: "branch",
+              ownerId: id,
+              weekday,
+              startLocal: tm("08:00"),
+              endLocal: tm("17:00"),
+            })),
+            {
+              ownerType: "branch",
+              ownerId: id,
+              weekday: 6,
+              startLocal: tm("08:00"),
+              endLocal: tm("12:00"),
+            },
+          ],
+        });
+        await tx.resource.createMany({
+          data: def.resources.map((r) => ({ branchId: id, type: r.type, name: r.name })),
+        });
+      }
+
+      const serviceIds: string[] = [];
+      for (const s of def.services) {
+        const { id } = await tx.service.create({
+          data: {
+            name: s.name,
+            durationMin: s.dur,
+            bufferBeforeMin: s.before ?? 0,
+            bufferAfterMin: s.after ?? 0,
+            priceCents: s.price,
+            cancelWindowHours: 24,
+            requiresResourceType: s.resource ?? null,
           },
-        ]);
-      await tx
-        .insert(resources)
-        .values(def.resources.map((r) => ({ branchId: id, type: r.type, name: r.name })));
-    }
+        });
+        serviceIds.push(id);
+      }
 
-    const serviceRows = await tx
-      .insert(services)
-      .values(
-        def.services.map((s) => ({
-          name: s.name,
-          durationMin: s.dur,
-          bufferBeforeMin: s.before ?? 0,
-          bufferAfterMin: s.after ?? 0,
-          priceCents: s.price,
-          cancelWindowHours: 24,
-          requiresResourceType: s.resource ?? null,
-        })),
-      )
-      .returning({ id: services.id });
-    const serviceIds = serviceRows.map((r) => r.id);
+      // 10 staff per tenant: first 5 at branch 0, next 4 at branch 1, the last one floats across both.
+      for (let i = 0; i < 10; i++) {
+        const { id: staffId } = await tx.staff.create({
+          data: {
+            fullName: `${pick(HO)} ${pick(DEM)} ${pick(TEN)}`,
+            title: def.titles[i % def.titles.length]!,
+          },
+        });
+        const home = i < 5 ? [branchIds[0]!] : i < 9 ? [branchIds[1]!] : branchIds;
+        await tx.staffBranch.createMany({ data: home.map((branchId) => ({ staffId, branchId })) });
+        const svc = [...new Set([0, 1, 2].map((k) => serviceIds[(i + k) % serviceIds.length]!))];
+        await tx.staffService.createMany({
+          data: svc.map((serviceId) => ({ staffId, serviceId })),
+        });
+        // Staff schedule: Mon-Fri with a 12:00-13:00 lunch break (two intervals per day).
+        await tx.workingHours.createMany({
+          data: [1, 2, 3, 4, 5].flatMap((weekday) => [
+            {
+              ownerType: "staff",
+              ownerId: staffId,
+              weekday,
+              startLocal: tm("08:00"),
+              endLocal: tm("12:00"),
+            },
+            {
+              ownerType: "staff",
+              ownerId: staffId,
+              weekday,
+              startLocal: tm("13:00"),
+              endLocal: tm("17:00"),
+            },
+          ]),
+        });
+      }
 
-    // 10 staff per tenant: first 5 at branch 0, next 4 at branch 1, the last one floats across both.
-    for (let i = 0; i < 10; i++) {
-      const [row] = await tx
-        .insert(staff)
-        .values({
+      await tx.customer.createMany({
+        data: Array.from({ length: 20 }, (_, i) => ({
           fullName: `${pick(HO)} ${pick(DEM)} ${pick(TEN)}`,
-          title: def.titles[i % def.titles.length]!,
-        })
-        .returning({ id: staff.id });
-      const staffId = row!.id;
-      const home = i < 5 ? [branchIds[0]!] : i < 9 ? [branchIds[1]!] : branchIds;
-      await tx.insert(staffBranches).values(home.map((branchId) => ({ staffId, branchId })));
-      const svc = [...new Set([0, 1, 2].map((k) => serviceIds[(i + k) % serviceIds.length]!))];
-      await tx.insert(staffServices).values(svc.map((serviceId) => ({ staffId, serviceId })));
-      // Staff schedule: Mon-Fri with a 12:00-13:00 lunch break (two intervals per day).
-      await tx.insert(workingHours).values(
-        [1, 2, 3, 4, 5].flatMap((weekday) => [
-          {
-            ownerType: "staff" as const,
-            ownerId: staffId,
-            weekday,
-            startLocal: "08:00",
-            endLocal: "12:00",
-          },
-          {
-            ownerType: "staff" as const,
-            ownerId: staffId,
-            weekday,
-            startLocal: "13:00",
-            endLocal: "17:00",
-          },
-        ]),
-      );
-    }
-
-    await tx.insert(customers).values(
-      Array.from({ length: 20 }, (_, i) => ({
-        fullName: `${pick(HO)} ${pick(DEM)} ${pick(TEN)}`,
-        email: `khach${i + 1}@${def.slug}.example`,
-        phone: `09${String(10000000 + Math.floor(rand() * 89999999))}`,
-      })),
-    );
-  });
+          email: `khach${i + 1}@${def.slug}.example`,
+          phone: `09${String(10000000 + Math.floor(rand() * 89999999))}`,
+        })),
+      });
+    },
+    { timeout: 60_000, maxWait: 10_000 },
+  );
 }

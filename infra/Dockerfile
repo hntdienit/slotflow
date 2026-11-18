@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 FROM node:22-alpine AS build
-RUN corepack enable
+RUN apk add --no-cache openssl libc6-compat && corepack enable
 WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile && pnpm build

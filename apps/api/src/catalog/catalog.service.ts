@@ -5,50 +5,53 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from "@nestjs/common";
-import { and, asc, eq, inArray } from "drizzle-orm";
-import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { z } from "zod";
-import { DbService } from "../db/db.service";
-import { pgCode, pgMessage } from "../db/pg-error";
-import { branches, staff, staffBranches, staffServices } from "../db/schema";
+import { DbService, Tx } from "../db/db.service";
+import { pgCode, pgMessage, prismaCode } from "../db/pg-error";
 import { ENTITIES, EntityDef } from "./entities";
 
-/** Generic row access: entity tables are looked up by name at runtime, so columns are indexed dynamically. */
-type DynTable = PgTable & Record<string, PgColumn>;
+type Row = Record<string, unknown>;
+/** Entities are resolved by name at runtime, so Prisma delegates are used through a minimal interface. */
+interface Delegate {
+  findMany(args: unknown): Promise<Row[]>;
+  findUnique(args: unknown): Promise<Row | null>;
+  create(args: unknown): Promise<Row>;
+  update(args: unknown): Promise<Row>;
+  delete(args: unknown): Promise<Row>;
+}
+const delegate = (tx: Tx, model: string) =>
+  (tx as unknown as Record<string, Delegate>)[model] as Delegate;
 const uuidSchema = z.string().uuid();
 
 function mapDbError(e: unknown): never {
-  switch (pgCode(e)) {
-    case "23505":
-      throw new ConflictException("Duplicate value violates a unique constraint");
-    case "23503":
-      throw new UnprocessableEntityException(
-        "Referenced row not found, or row is still referenced",
-      );
-    case "23514":
-    case "22P02":
-    case "22007":
-    case "22008":
-      throw new BadRequestException(pgMessage(e));
-    default:
-      throw e;
-  }
+  if (e instanceof NotFoundException || e instanceof UnprocessableEntityException) throw e;
+  const sqlstate = pgCode(e);
+  const prisma = prismaCode(e);
+  if (prisma === "P2025") throw new NotFoundException();
+  if (sqlstate === "23505" || prisma === "P2002")
+    throw new ConflictException("Duplicate value violates a unique constraint");
+  if (sqlstate === "23503" || prisma === "P2003")
+    throw new UnprocessableEntityException("Referenced row not found, or row is still referenced");
+  if (sqlstate && ["23514", "22P02", "22007", "22008"].includes(sqlstate))
+    throw new BadRequestException(pgMessage(e));
+  if (prisma === "P2004") throw new BadRequestException(pgMessage(e));
+  throw e;
 }
 
 @Injectable()
 export class CatalogService {
   constructor(private readonly db: DbService) {}
 
-  private def(entity: string): EntityDef & { t: DynTable } {
+  private def(entity: string): EntityDef {
     const def = ENTITIES[entity];
     if (!def) throw new NotFoundException(`Unknown entity '${entity}'`);
-    return { ...def, t: def.table as DynTable };
+    return def;
   }
 
-  private parse(schema: z.ZodTypeAny, body: unknown): Record<string, unknown> {
+  private parse(schema: z.ZodTypeAny, body: unknown): Row {
     const r = schema.safeParse(body);
     if (!r.success) throw new BadRequestException(r.error.issues);
-    return r.data as Record<string, unknown>;
+    return r.data as Row;
   }
 
   private id(raw: string): string {
@@ -56,87 +59,85 @@ export class CatalogService {
     return raw;
   }
 
+  /** Prisma returns `time` columns as Dates; the API exposes "HH:MM". */
+  private out(def: EntityDef, row: Row): Row {
+    if (!def.timeFields) return row;
+    const copy = { ...row };
+    for (const f of def.timeFields) {
+      const v = copy[f];
+      if (v instanceof Date) copy[f] = v.toISOString().slice(11, 16);
+    }
+    return copy;
+  }
+
   async list(tenantId: string, entity: string, query: Record<string, string | undefined>) {
-    const { t, filters, orderBy } = this.def(entity);
-    const conds = filters.flatMap((f) => {
-      const col = t[f];
-      const v = query[f];
-      return col && v !== undefined ? [eq(col, v)] : [];
-    });
-    const limit = Math.min(Math.max(Number(query.limit ?? 50) || 50, 1), 200);
-    const offset = Math.max(Number(query.offset ?? 0) || 0, 0);
-    const order = [...orderBy.map((c) => t[c]), t.id]
-      .filter((c): c is PgColumn => !!c)
-      .map((c) => asc(c));
+    const def = this.def(entity);
+    const where: Row = {};
+    for (const [name, schema] of Object.entries(def.filters)) {
+      if (query[name] === undefined) continue;
+      const r = schema.safeParse(query[name]);
+      if (!r.success) throw new BadRequestException(`invalid filter '${name}'`);
+      where[name] = r.data;
+    }
+    const take = Math.min(Math.max(Number(query.limit ?? 50) || 50, 1), 200);
+    const skip = Math.max(Number(query.offset ?? 0) || 0, 0);
+    const orderBy = [...def.orderBy, "id"].map((c) => ({ [c]: "asc" }));
     try {
-      const items = await this.db.withTenant(tenantId, (tx) =>
-        tx
-          .select()
-          .from(t)
-          .where(and(...conds))
-          .orderBy(...order)
-          .limit(limit)
-          .offset(offset),
+      const rows = await this.db.withTenant(tenantId, (tx) =>
+        delegate(tx, def.model).findMany({ where, orderBy, take, skip }),
       );
-      return { items, limit, offset };
+      return { items: rows.map((r) => this.out(def, r)), limit: take, offset: skip };
     } catch (e) {
       return mapDbError(e);
     }
   }
 
   async get(tenantId: string, entity: string, id: string) {
-    const { t } = this.def(entity);
+    const def = this.def(entity);
     this.id(id);
-    const rows = await this.db.withTenant(tenantId, (tx) =>
-      tx.select().from(t).where(eq(t.id!, id)),
+    const row = await this.db.withTenant(tenantId, (tx) =>
+      delegate(tx, def.model).findUnique({ where: { id } }),
     );
-    if (!rows[0]) throw new NotFoundException();
-    return rows[0];
+    if (!row) throw new NotFoundException();
+    return this.out(def, row);
   }
 
   async create(tenantId: string, entity: string, body: unknown) {
-    const { t, create } = this.def(entity);
-    const data = this.parse(create, body);
+    const def = this.def(entity);
+    const data = this.parse(def.create, body);
     try {
-      return await this.db.withTenant(tenantId, async (tx) => {
+      const row = await this.db.withTenant(tenantId, async (tx) => {
         await this.assertOwner(tx, data);
-        const rows = await tx.insert(t).values(data).returning();
-        return rows[0];
+        return delegate(tx, def.model).create({ data });
       });
+      return this.out(def, row);
     } catch (e) {
-      if (e instanceof UnprocessableEntityException) throw e;
       return mapDbError(e);
     }
   }
 
   async update(tenantId: string, entity: string, id: string, body: unknown) {
-    const { t, update } = this.def(entity);
+    const def = this.def(entity);
     this.id(id);
-    const data = this.parse(update, body);
+    const data = this.parse(def.update, body);
     if (Object.keys(data).length === 0) throw new BadRequestException("Empty update");
     try {
       const row = await this.db.withTenant(tenantId, async (tx) => {
         await this.assertOwner(tx, data);
-        return (await tx.update(t).set(data).where(eq(t.id!, id)).returning())[0];
+        return delegate(tx, def.model).update({ where: { id }, data });
       });
-      if (!row) throw new NotFoundException();
-      return row;
+      return this.out(def, row);
     } catch (e) {
-      if (e instanceof NotFoundException || e instanceof UnprocessableEntityException) throw e;
       return mapDbError(e);
     }
   }
 
   async remove(tenantId: string, entity: string, id: string) {
-    const { t } = this.def(entity);
+    const def = this.def(entity);
     this.id(id);
     try {
-      const rows = await this.db.withTenant(tenantId, (tx) =>
-        tx.delete(t).where(eq(t.id!, id)).returning({ id: t.id! }),
-      );
-      if (!rows.length) throw new NotFoundException();
+      await this.db.withTenant(tenantId, (tx) => delegate(tx, def.model).delete({ where: { id } }));
     } catch (e) {
-      if (e instanceof NotFoundException) throw e;
       return mapDbError(e);
     }
   }
@@ -154,61 +155,51 @@ export class CatalogService {
     const ids = [...new Set(parsed[key] as string[])];
     try {
       return await this.db.withTenant(tenantId, async (tx) => {
-        const exists = await tx.select({ id: staff.id }).from(staff).where(eq(staff.id, staffId));
-        if (!exists.length) throw new NotFoundException("staff not found");
+        if (!(await tx.staff.findUnique({ where: { id: staffId } })))
+          throw new NotFoundException("staff not found");
         if (kind === "branches") {
-          await tx.delete(staffBranches).where(eq(staffBranches.staffId, staffId));
-          if (ids.length)
-            await tx.insert(staffBranches).values(ids.map((branchId) => ({ staffId, branchId })));
+          await tx.staffBranch.deleteMany({ where: { staffId } });
+          await tx.staffBranch.createMany({ data: ids.map((branchId) => ({ staffId, branchId })) });
         } else {
-          await tx.delete(staffServices).where(eq(staffServices.staffId, staffId));
-          if (ids.length)
-            await tx.insert(staffServices).values(ids.map((serviceId) => ({ staffId, serviceId })));
+          await tx.staffService.deleteMany({ where: { staffId } });
+          await tx.staffService.createMany({
+            data: ids.map((serviceId) => ({ staffId, serviceId })),
+          });
         }
         return { [key]: ids };
       });
     } catch (e) {
-      if (e instanceof NotFoundException) throw e;
       return mapDbError(e);
     }
   }
 
   async getStaffLinks(tenantId: string, staffId: string, kind: "branches" | "services") {
     this.id(staffId);
-    const rows = await this.db.withTenant(tenantId, (tx) =>
-      kind === "branches"
-        ? tx
-            .select({ id: staffBranches.branchId })
-            .from(staffBranches)
-            .where(eq(staffBranches.staffId, staffId))
-            .orderBy(asc(staffBranches.branchId))
-        : tx
-            .select({ id: staffServices.serviceId })
-            .from(staffServices)
-            .where(eq(staffServices.staffId, staffId))
-            .orderBy(asc(staffServices.serviceId)),
-    );
-    return { [kind === "branches" ? "branchIds" : "serviceIds"]: rows.map((r) => r.id) };
+    return this.db.withTenant(tenantId, async (tx) => {
+      if (kind === "branches") {
+        const rows = await tx.staffBranch.findMany({
+          where: { staffId },
+          orderBy: { branchId: "asc" },
+        });
+        return { branchIds: rows.map((r) => r.branchId) };
+      }
+      const rows = await tx.staffService.findMany({
+        where: { staffId },
+        orderBy: { serviceId: "asc" },
+      });
+      return { serviceIds: rows.map((r) => r.serviceId) };
+    });
   }
 
   /** working_hours / time_off point at a branch or staff row without a FK (polymorphic): check it here. */
-  private async assertOwner(
-    tx: Parameters<Parameters<DbService["withTenant"]>[1]>[0],
-    data: Record<string, unknown>,
-  ) {
+  private async assertOwner(tx: Tx, data: Row) {
     if (!data.ownerType || !data.ownerId) return;
-    const ownerId = String(data.ownerId);
-    const rows =
+    const where = { id: String(data.ownerId) };
+    const found =
       data.ownerType === "branch"
-        ? await tx
-            .select({ id: branches.id })
-            .from(branches)
-            .where(inArray(branches.id, [ownerId]))
-        : await tx
-            .select({ id: staff.id })
-            .from(staff)
-            .where(inArray(staff.id, [ownerId]));
-    if (!rows.length)
-      throw new UnprocessableEntityException(`${String(data.ownerType)} ${ownerId} not found`);
+        ? await tx.branch.findUnique({ where })
+        : await tx.staff.findUnique({ where });
+    if (!found)
+      throw new UnprocessableEntityException(`${String(data.ownerType)} ${where.id} not found`);
   }
 }

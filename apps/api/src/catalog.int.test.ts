@@ -125,27 +125,21 @@ describe("catalog CRUD (HTTP, real Postgres + RLS)", () => {
       .send({ branchIds: [foreign.id] });
     expect(cross.status).toBe(422);
 
-    const wh = await http()
-      .post("/admin/working-hours")
-      .set(as(a))
-      .send({
-        ownerType: "staff",
-        ownerId: st.id,
-        weekday: 1,
-        startLocal: "09:00",
-        endLocal: "17:00",
-      });
+    const wh = await http().post("/admin/working-hours").set(as(a)).send({
+      ownerType: "staff",
+      ownerId: st.id,
+      weekday: 1,
+      startLocal: "09:00",
+      endLocal: "17:00",
+    });
     expect(wh.status).toBe(201);
-    const badRange = await http()
-      .post("/admin/working-hours")
-      .set(as(a))
-      .send({
-        ownerType: "staff",
-        ownerId: st.id,
-        weekday: 1,
-        startLocal: "17:00",
-        endLocal: "09:00",
-      });
+    const badRange = await http().post("/admin/working-hours").set(as(a)).send({
+      ownerType: "staff",
+      ownerId: st.id,
+      weekday: 1,
+      startLocal: "17:00",
+      endLocal: "09:00",
+    });
     expect(badRange.status).toBe(400);
     const ghostOwner = await http()
       .post("/admin/working-hours")
@@ -159,16 +153,13 @@ describe("catalog CRUD (HTTP, real Postgres + RLS)", () => {
       });
     expect(ghostOwner.status).toBe(422);
 
-    const off = await http()
-      .post("/admin/time-off")
-      .set(as(a))
-      .send({
-        ownerType: "staff",
-        ownerId: st.id,
-        startAt: "2026-12-24T00:00:00Z",
-        endAt: "2026-12-26T00:00:00Z",
-        reason: "Tết dương",
-      });
+    const off = await http().post("/admin/time-off").set(as(a)).send({
+      ownerType: "staff",
+      ownerId: st.id,
+      startAt: "2026-12-24T00:00:00Z",
+      endAt: "2026-12-26T00:00:00Z",
+      reason: "Tết dương",
+    });
     expect(off.status).toBe(201);
 
     // deleting a service that is linked cascades the link, deleting a branch with resources cascades resources
