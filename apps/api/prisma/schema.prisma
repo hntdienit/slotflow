@@ -220,32 +220,48 @@ model WaitlistOffer {
 }
 
 model Notification {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
-  bookingId    String?   @map("booking_id") @db.Uuid
-  type         String
-  channel      String
-  dedupeKey    String    @map("dedupe_key")
-  status       String    @default("pending")
-  attempts     Int       @default(0)
-  lastError    String?   @map("last_error")
-  payload      Json      @default("{}")
-  scheduledFor DateTime? @map("scheduled_for") @db.Timestamptz(6)
-  sentAt       DateTime? @map("sent_at") @db.Timestamptz(6)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  bookingId     String?   @map("booking_id") @db.Uuid
+  type          String
+  channel       String
+  dedupeKey     String    @map("dedupe_key")
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  lastError     String?   @map("last_error")
+  payload       Json      @default("{}")
+  scheduledFor  DateTime? @map("scheduled_for") @db.Timestamptz(6)
+  sentAt        DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+  lockedUntil   DateTime? @map("locked_until") @db.Timestamptz(6)
 
   @@unique([tenantId, dedupeKey])
   @@map("notifications")
 }
 
 model OutboxEvent {
-  seq          BigInt    @id @default(autoincrement())
-  tenantId     String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
-  type         String
-  payload      Json
-  attempts     Int       @default(0)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  dispatchedAt DateTime? @map("dispatched_at") @db.Timestamptz(6)
+  seq           BigInt    @id @default(autoincrement())
+  tenantId      String    @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  type          String
+  payload       Json
+  attempts      Int       @default(0)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  dispatchedAt  DateTime? @map("dispatched_at") @db.Timestamptz(6)
+  lastError     String?   @map("last_error")
+  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+  deadAt        DateTime? @map("dead_at") @db.Timestamptz(6)
 
   @@map("outbox_events")
+}
+
+model SmsMessage {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  notificationId String   @unique @map("notification_id") @db.Uuid
+  toPhone        String   @map("to_phone")
+  body           String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("sms_messages")
 }

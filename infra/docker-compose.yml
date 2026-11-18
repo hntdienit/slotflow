@@ -52,11 +52,14 @@ services:
   worker:
     build: { context: .., dockerfile: infra/Dockerfile, target: worker }
     environment:
-      DATABASE_URL: postgres://slotflow_app:slotflow_app@postgres:5432/slotflow
+      WORKER_DATABASE_URL: postgres://slotflow_worker:slotflow_worker@postgres:5432/slotflow
       REDIS_URL: redis://redis:6379
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
+      mailhog: { condition: service_started }
 
 volumes:
   pgdata:

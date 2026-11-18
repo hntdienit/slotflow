@@ -10,7 +10,7 @@ guarded AI booking assistant (Vietnamese + English).
 
 ## Status
 
-Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) done. Roadmap: catalog & RLS → availability engine → safe booking →
+Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) and **M4** (outbox, reminders, hold sweeper, email/SMS adapters, retry/dead letter) done. Roadmap: catalog & RLS → availability engine → safe booking →
 background jobs → waitlist → AI assistant → UI → polish. All data is fake.
 
 ## Quick start
@@ -38,6 +38,7 @@ domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 - [ADR-003 Data access: Prisma ORM + SQL migrations](docs/adr/0003-data-access.md)
 - [ADR-004 Availability engine, DST and cache](docs/adr/0004-availability-engine.md)
 - [ADR-005 Booking lifecycle, holds and idempotency](docs/adr/0005-booking-lifecycle.md)
+- [ADR-006 Background jobs on Postgres](docs/adr/0006-background-jobs.md)
 
 ## Benchmarks
 
