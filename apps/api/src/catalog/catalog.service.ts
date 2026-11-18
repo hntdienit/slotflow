@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { z } from "zod";
+import { CacheService } from "../cache/cache.service";
 import { DbService, Tx } from "../db/db.service";
 import { pgCode, pgMessage, prismaCode } from "../db/pg-error";
 import { ENTITIES, EntityDef } from "./entities";
@@ -40,7 +41,10 @@ function mapDbError(e: unknown): never {
 
 @Injectable()
 export class CatalogService {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly cache: CacheService,
+  ) {}
 
   private def(entity: string): EntityDef {
     const def = ENTITIES[entity];
@@ -110,6 +114,7 @@ export class CatalogService {
         await this.assertOwner(tx, data);
         return delegate(tx, def.model).create({ data });
       });
+      await this.cache.bumpCatalog(tenantId);
       return this.out(def, row);
     } catch (e) {
       return mapDbError(e);
@@ -126,6 +131,7 @@ export class CatalogService {
         await this.assertOwner(tx, data);
         return delegate(tx, def.model).update({ where: { id }, data });
       });
+      await this.cache.bumpCatalog(tenantId);
       return this.out(def, row);
     } catch (e) {
       return mapDbError(e);
@@ -137,6 +143,7 @@ export class CatalogService {
     this.id(id);
     try {
       await this.db.withTenant(tenantId, (tx) => delegate(tx, def.model).delete({ where: { id } }));
+      await this.cache.bumpCatalog(tenantId);
     } catch (e) {
       return mapDbError(e);
     }
@@ -154,7 +161,7 @@ export class CatalogService {
     const parsed = this.parse(z.object({ [key]: z.array(z.string().uuid()).max(500) }), body);
     const ids = [...new Set(parsed[key] as string[])];
     try {
-      return await this.db.withTenant(tenantId, async (tx) => {
+      const saved = await this.db.withTenant(tenantId, async (tx) => {
         if (!(await tx.staff.findUnique({ where: { id: staffId } })))
           throw new NotFoundException("staff not found");
         if (kind === "branches") {
@@ -168,6 +175,8 @@ export class CatalogService {
         }
         return { [key]: ids };
       });
+      await this.cache.bumpCatalog(tenantId);
+      return saved;
     } catch (e) {
       return mapDbError(e);
     }

@@ -4,6 +4,7 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CatalogModule } from "./catalog/catalog.module";
+import { CacheModule } from "./cache/cache.module";
 import { DbModule } from "./db/db.module";
 import { createTenant } from "../test/helpers";
 
@@ -17,7 +18,9 @@ describe("catalog CRUD (HTTP, real Postgres + RLS)", () => {
   beforeAll(async () => {
     a = await createTenant("crud-a");
     b = await createTenant("crud-b");
-    const mod = await Test.createTestingModule({ imports: [DbModule, CatalogModule] }).compile();
+    const mod = await Test.createTestingModule({
+      imports: [DbModule, CacheModule, CatalogModule],
+    }).compile();
     app = mod.createNestApplication();
     await app.init();
   });

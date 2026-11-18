@@ -9,8 +9,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "lint": "eslint .",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "typecheck": "pnpm --filter @slotflow/core build && pnpm -r typecheck",
+    "test": "pnpm --filter @slotflow/core build && pnpm -r test",
     "format": "prettier --write ."
   },
   "devDependencies": {
