@@ -43,12 +43,12 @@ domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 
 ## Use-case diagrams
 
-Interactive workflow diagrams (standalone HTML: download the file and open it in a browser; the JSON next to each is its source).
+Interactive workflow diagrams, served by GitHub Pages (the JSON is each diagram's source).
 
-- Book safely and get reminders: [HTML](docs/diagrams/use-case-booking.html) · [JSON](docs/diagrams/use-case-booking.json)
-- Cancel and offer the slot to the waitlist: [HTML](docs/diagrams/use-case-waitlist.html) · [JSON](docs/diagrams/use-case-waitlist.json)
+- Book safely and get reminders: [Open](https://hntdienit.github.io/slotflow/diagrams/use-case-booking.html) · [JSON](docs/diagrams/use-case-booking.json)
+- Cancel and offer the slot to the waitlist: [Open](https://hntdienit.github.io/slotflow/diagrams/use-case-waitlist.html) · [JSON](docs/diagrams/use-case-waitlist.json)
 
-Sơ đồ luồng use case (HTML độc lập: tải về rồi mở bằng trình duyệt; file JSON là nguồn).
+Sơ đồ luồng use case (xem trực tiếp trên GitHub Pages; file JSON là nguồn).
 
 ## Benchmarks
 
