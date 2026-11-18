@@ -1,0 +1,272 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Use case 2: Hủy lịch và mời từ danh sách chờ",
+    "locale": "vi",
+    "quality_profile": "showcase",
+    "output": "docs/diagrams/use-case-waitlist.html"
+  },
+  "lanes": [
+    {
+      "id": "customer",
+      "label": "Khách hàng"
+    },
+    {
+      "id": "api",
+      "label": "API (NestJS)"
+    },
+    {
+      "id": "db",
+      "label": "PostgreSQL"
+    },
+    {
+      "id": "worker",
+      "label": "Worker + LocalStack"
+    }
+  ],
+  "phases": [
+    {
+      "id": "release",
+      "label": "Slot được nhả",
+      "fromCol": 0,
+      "toCol": 2
+    },
+    {
+      "id": "offer",
+      "label": "Mời người đứng đầu",
+      "fromCol": 3,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "answer",
+      "label": "Khách trả lời",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "u_cancel",
+    "a_cancel",
+    "d_outbox",
+    "w_relay",
+    "w_hook",
+    "a_match",
+    "d_offer",
+    "w_notify",
+    "u_offer",
+    "a_accept",
+    "d_book"
+  ],
+  "nodes": [
+    {
+      "id": "u_cancel",
+      "lane": "customer",
+      "col": 0,
+      "type": "external",
+      "label": "Khách hủy hoặc đổi lịch",
+      "sublabel": "slot được giải phóng"
+    },
+    {
+      "id": "u_offer",
+      "lane": "customer",
+      "col": 5,
+      "type": "external",
+      "label": "Nhận lời mời",
+      "sublabel": "email/SMS, có 10 phút"
+    },
+    {
+      "id": "a_cancel",
+      "lane": "api",
+      "col": 0,
+      "type": "backend",
+      "label": "Hủy + tính phí",
+      "sublabel": "theo cửa sổ hủy"
+    },
+    {
+      "id": "a_match",
+      "lane": "api",
+      "col": 2,
+      "type": "backend",
+      "label": "Matcher waitlist",
+      "sublabel": "FIFO theo thời điểm đăng ký"
+    },
+    {
+      "id": "a_decline",
+      "lane": "api",
+      "col": 3,
+      "type": "security",
+      "label": "Đóng lời mời",
+      "sublabel": "từ chối hoặc hết hạn"
+    },
+    {
+      "id": "a_accept",
+      "lane": "api",
+      "col": 5,
+      "type": "backend",
+      "label": "Chấp nhận",
+      "sublabel": "xác nhận hold"
+    },
+    {
+      "id": "d_outbox",
+      "lane": "db",
+      "col": 1,
+      "type": "database",
+      "label": "Outbox",
+      "sublabel": "slot.released"
+    },
+    {
+      "id": "d_offer",
+      "lane": "db",
+      "col": 3,
+      "type": "database",
+      "label": "Hold + lời mời",
+      "sublabel": "tối đa 1 lời mời mở / người"
+    },
+    {
+      "id": "d_book",
+      "lane": "db",
+      "col": 5,
+      "type": "database",
+      "label": "Lịch hẹn xác nhận",
+      "sublabel": "entry thành booked"
+    },
+    {
+      "id": "w_relay",
+      "lane": "worker",
+      "col": 1,
+      "type": "backend",
+      "label": "Outbox relay",
+      "sublabel": "vào SQS events"
+    },
+    {
+      "id": "w_hook",
+      "lane": "worker",
+      "col": 2,
+      "type": "messagebus",
+      "label": "Gọi API nội bộ",
+      "sublabel": "slot.released, booking.expired"
+    },
+    {
+      "id": "w_notify",
+      "lane": "worker",
+      "col": 5,
+      "type": "cloud",
+      "label": "Email / SMS lời mời",
+      "sublabel": "waitlist.offered qua SQS, SES"
+    }
+  ],
+  "edges": [
+    {
+      "id": "f1",
+      "from": "u_cancel",
+      "to": "a_cancel",
+      "label": "hủy / đổi",
+      "variant": "default"
+    },
+    {
+      "id": "f2",
+      "from": "a_cancel",
+      "to": "d_outbox",
+      "label": "slot.released",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f3",
+      "from": "d_outbox",
+      "to": "w_relay",
+      "variant": "dashed"
+    },
+    {
+      "id": "f4",
+      "from": "w_relay",
+      "to": "w_hook",
+      "label": "SQS",
+      "variant": "dashed"
+    },
+    {
+      "id": "f5",
+      "from": "w_hook",
+      "to": "a_match",
+      "label": "release",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f6",
+      "from": "a_match",
+      "to": "d_offer",
+      "label": "hold 10 phút",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f7",
+      "from": "d_offer",
+      "to": "w_notify",
+      "variant": "dashed"
+    },
+    {
+      "id": "f8",
+      "from": "w_notify",
+      "to": "u_offer",
+      "variant": "emphasis",
+      "role": "return"
+    },
+    {
+      "id": "f9",
+      "from": "u_offer",
+      "to": "a_accept",
+      "label": "chấp nhận",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f10",
+      "from": "a_accept",
+      "to": "d_book",
+      "variant": "default"
+    },
+    {
+      "id": "f11",
+      "from": "d_offer",
+      "to": "a_decline",
+      "label": "hết hạn",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "f12",
+      "from": "u_offer",
+      "to": "a_decline",
+      "label": "từ chối",
+      "variant": "security",
+      "role": "branch"
+    },
+    {
+      "id": "f13",
+      "from": "a_decline",
+      "to": "a_match",
+      "label": "mời người kế",
+      "variant": "emphasis",
+      "role": "return"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Công bằng và không trùng",
+      "items": [
+        "Đúng thứ tự đăng ký, người từ chối không được mời lại cùng khung giờ",
+        "Gọi matcher nhiều lần vẫn chỉ có một lời mời mở cho mỗi slot"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Hold hết hạn cũng được mời tiếp",
+      "items": [
+        "Sweeper hoặc việc nhận hold hết hạn đều phát booking.expired",
+        "Hold bị bỏ dở của khách thường cũng nhả slot cho danh sách chờ"
+      ]
+    }
+  ]
+}

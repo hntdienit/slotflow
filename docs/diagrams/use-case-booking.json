@@ -1,0 +1,70 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Use case 1: Đặt lịch an toàn và nhắc lịch",
+    "locale": "vi",
+    "quality_profile": "showcase",
+    "output": "docs/diagrams/use-case-booking.html"
+  },
+  "lanes": [
+    { "id": "customer", "label": "Khách hàng" },
+    { "id": "api", "label": "API (NestJS)" },
+    { "id": "db", "label": "PostgreSQL" },
+    { "id": "worker", "label": "Worker + LocalStack" }
+  ],
+  "phases": [
+    { "id": "book", "label": "Tìm và giữ chỗ", "fromCol": 0, "toCol": 1 },
+    { "id": "confirm", "label": "Xác nhận", "fromCol": 2, "toCol": 2, "variant": "emphasis" },
+    { "id": "notify", "label": "Thông báo bất đồng bộ", "fromCol": 3, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["u_search", "a_avail", "u_book", "a_book", "a_confirm", "d_outbox", "w_relay", "w_sqs", "w_notify", "w_ses", "u_remind"],
+  "nodes": [
+    { "id": "u_search", "lane": "customer", "col": 0, "type": "external", "label": "Tìm slot trống", "sublabel": "chọn dịch vụ, chi nhánh" },
+    { "id": "u_book", "lane": "customer", "col": 1, "type": "frontend", "label": "Giữ chỗ / đặt lịch", "sublabel": "gửi Idempotency-Key" },
+    { "id": "u_conflict", "lane": "customer", "col": 2, "type": "external", "label": "Chọn slot khác", "sublabel": "nhận lỗi 409" },
+    { "id": "u_remind", "lane": "customer", "col": 5, "type": "external", "label": "Nhận email / SMS", "sublabel": "xác nhận, nhắc 24h và 2h" },
+    { "id": "a_avail", "lane": "api", "col": 0, "type": "backend", "label": "Tính slot trống", "sublabel": "cache Redis 60 giây" },
+    { "id": "a_book", "lane": "api", "col": 1, "type": "backend", "label": "Tạo hold", "sublabel": "giờ làm, nhân viên, phòng" },
+    { "id": "a_confirm", "lane": "api", "col": 2, "type": "backend", "label": "Xác nhận", "sublabel": "held thành confirmed" },
+    { "id": "d_excl", "lane": "db", "col": 1, "type": "security", "label": "Exclusion constraint", "sublabel": "chặn đặt trùng" },
+    { "id": "d_outbox", "lane": "db", "col": 2, "type": "database", "label": "Outbox", "sublabel": "booking.confirmed, cùng transaction" },
+    { "id": "w_relay", "lane": "worker", "col": 2, "type": "backend", "label": "Outbox relay", "sublabel": "gửi trước, commit sau" },
+    { "id": "w_sqs", "lane": "worker", "col": 3, "type": "messagebus", "label": "SQS events", "sublabel": "DLQ sau 5 lần lỗi" },
+    { "id": "w_notify", "lane": "worker", "col": 4, "type": "backend", "label": "Tạo thông báo", "sublabel": "xác nhận, nhắc 24h và 2h" },
+    { "id": "w_ses", "lane": "worker", "col": 5, "type": "cloud", "label": "SES / SMS giả", "sublabel": "SQS delay, retry, DLQ" }
+  ],
+  "edges": [
+    { "id": "e1", "from": "u_search", "to": "a_avail", "label": "xem slot", "variant": "default" },
+    { "id": "e2", "from": "a_avail", "to": "u_book", "label": "slot trống", "variant": "default" },
+    { "id": "e3", "from": "u_book", "to": "a_book", "variant": "emphasis" },
+    { "id": "e4", "from": "a_book", "to": "d_excl", "label": "ghi hold", "variant": "security", "role": "branch" },
+    { "id": "e5", "from": "a_book", "to": "u_conflict", "label": "trùng: 409", "variant": "security", "role": "error" },
+    { "id": "e6", "from": "a_book", "to": "a_confirm", "label": "xác nhận trong 5 phút", "variant": "emphasis" },
+    { "id": "e7", "from": "a_confirm", "to": "d_outbox", "variant": "default" },
+    { "id": "e8", "from": "d_outbox", "to": "w_relay", "variant": "dashed" },
+    { "id": "e9", "from": "w_relay", "to": "w_sqs", "variant": "dashed" },
+    { "id": "e10", "from": "w_sqs", "to": "w_notify", "variant": "dashed" },
+    { "id": "e11", "from": "w_notify", "to": "w_ses", "label": "đến hạn", "variant": "dashed" },
+    { "id": "e12", "from": "w_ses", "to": "u_remind", "variant": "emphasis", "role": "return" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "An toàn khi đặt đồng thời",
+      "items": [
+        "100 request cùng slot: đúng 1 thành công, 99 nhận 409",
+        "Cùng Idempotency-Key chỉ tạo một lịch hẹn",
+        "Hold hết hạn sau 5 phút, không chặn khách khác"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Đổi hoặc hủy lịch",
+      "items": [
+        "Nhắc lịch dời theo giờ mới hoặc bị hủy cùng lịch hẹn",
+        "Worker kiểm tra lại lịch hẹn ngay trước khi gửi"
+      ]
+    }
+  ]
+}
