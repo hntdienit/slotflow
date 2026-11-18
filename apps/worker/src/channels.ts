@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import { SendEmailCommand, type SESClient } from "@aws-sdk/client-ses";
 import type { Pool } from "pg";
 
 export interface Outgoing {
@@ -15,26 +15,24 @@ export interface NotificationChannel {
   send(msg: Outgoing): Promise<void>;
 }
 
-export class EmailChannel implements NotificationChannel {
+/** Email through Amazon SES (LocalStack in dev; inspect sent mail at GET /_aws/ses). */
+export class SesEmailChannel implements NotificationChannel {
   readonly name = "email" as const;
-  private readonly transport;
   constructor(
-    host: string,
-    port: number,
+    private readonly ses: SESClient,
     private readonly from: string,
-  ) {
-    // MailHog in dev: plain SMTP, no auth.
-    this.transport = nodemailer.createTransport({ host, port, secure: false, ignoreTLS: true });
-  }
+  ) {}
   async send(m: Outgoing) {
-    await this.transport.sendMail({
-      from: this.from,
-      to: m.to,
-      subject: m.subject,
-      text: m.body,
-      // Stable id: a re-send after a crash carries the same Message-ID so mail clients can collapse it.
-      messageId: `<${m.notificationId}@slotflow.local>`,
-    });
+    await this.ses.send(
+      new SendEmailCommand({
+        Source: this.from,
+        Destination: { ToAddresses: [m.to] },
+        Message: {
+          Subject: { Data: m.subject, Charset: "UTF-8" },
+          Body: { Text: { Data: m.body, Charset: "UTF-8" } },
+        },
+      }),
+    );
   }
 }
 

@@ -1,61 +1,117 @@
 import type { Pool } from "pg";
 import type { NotificationChannel } from "./channels";
+import { backoffSeconds, type SqsQueue } from "./queue";
 import { renderMessage } from "./templates";
 
-interface Claimed {
+/** SQS can delay a message by at most 15 minutes, so only notifications due within that window are enqueued. */
+export const LOOKAHEAD_SECONDS = 900;
+
+/**
+ * Puts notifications that are due within the look-ahead window on the queue, with a per-message delay
+ * equal to the time left, so SQS releases each one at its scheduled moment. A notification is enqueued
+ * once per (re)schedule (`enqueued_at`); moving a reminder clears it so it is enqueued again at the new
+ * time. The send happens before the commit, so a crash can duplicate a message but never lose one; a
+ * message that vanished anyway is re-enqueued once it is 15 minutes overdue.
+ */
+export async function enqueueDue(pool: Pool, queue: SqsQueue, batch = 100): Promise<number> {
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    const { rows } = await c.query<{ id: string; tenant_id: string; delay: number }>(
+      `SELECT id::text, tenant_id::text, GREATEST(0, EXTRACT(EPOCH FROM (scheduled_for - now())))::float AS delay
+         FROM notifications
+        WHERE status IN ('pending','failed') AND scheduled_for <= now() + ($2::int * interval '1 second')
+          AND (enqueued_at IS NULL OR (enqueued_at < now() - interval '15 minutes' AND scheduled_for < now() - interval '15 minutes'))
+        ORDER BY scheduled_for LIMIT $1 FOR UPDATE SKIP LOCKED`,
+      [batch, LOOKAHEAD_SECONDS],
+    );
+    if (rows.length) {
+      await queue.sendBatch(
+        rows.map((r) => ({
+          body: JSON.stringify({ notificationId: r.id, tenantId: r.tenant_id }),
+          delaySeconds: r.delay,
+        })),
+      );
+      await c.query("UPDATE notifications SET enqueued_at = now() WHERE id = ANY($1::uuid[])", [
+        rows.map((r) => r.id),
+      ]);
+    }
+    await c.query("COMMIT");
+    return rows.length;
+  } catch (err) {
+    await c.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    c.release();
+  }
+}
+
+interface Row {
   id: string;
   tenant_id: string;
   booking_id: string | null;
   type: string;
   channel: string;
+  status: string;
   attempts: number;
+  scheduled_for: Date;
   payload: { to?: string };
 }
 
 export interface DeliveryOptions {
-  maxAttempts?: number;
   backoffBaseMs?: number;
-  batch?: number;
-  leaseSeconds?: number;
+  wait?: number;
+  /** Messages arriving more than this early are stale (the reminder was moved later) and are dropped. */
+  earlyToleranceMs?: number;
 }
 
 /**
- * Sends due notifications. A row is claimed by setting a lease (`locked_until`) rather than holding a
- * transaction open during network I/O: a crashed worker's lease just expires and the row is retried.
- * Delivery is therefore at-least-once; the stable Message-ID / unique SMS row make a re-send harmless.
- * Failures back off exponentially and end as `dead` (the dead-letter set) after maxAttempts.
+ * Consumes notification messages: re-checks the notification and its booking against the database,
+ * sends through the channel and records the outcome. Success or "no longer needed" deletes the message.
+ * A send failure records the error and leaves the message to reappear after an exponential delay; once
+ * SQS has delivered it maxReceiveCount times it goes to the DLQ, where `consumeDeadLetters` parks the row.
  */
-export async function deliverDue(
+export async function consumeNotifications(
   pool: Pool,
+  queue: SqsQueue,
   channels: NotificationChannel[],
   o: DeliveryOptions = {},
 ) {
-  const { maxAttempts = 5, backoffBaseMs = 5000, batch = 20, leaseSeconds = 60 } = o;
+  const { backoffBaseMs = 5000, wait = 1, earlyToleranceMs = 30_000 } = o;
   const byName = new Map(channels.map((c) => [c.name, c]));
-  const { rows } = await pool.query<Claimed>(
-    `UPDATE notifications SET locked_until = now() + ($2::int * interval '1 second')
-      WHERE id IN (
-        SELECT id FROM notifications
-         WHERE status IN ('pending','failed') AND scheduled_for <= now()
-           AND (next_attempt_at IS NULL OR next_attempt_at <= now())
-           AND (locked_until IS NULL OR locked_until < now())
-         ORDER BY scheduled_for LIMIT $1 FOR UPDATE SKIP LOCKED)
-      RETURNING id::text, tenant_id::text, booking_id::text, type, channel, attempts, payload`,
-    [batch, leaseSeconds],
-  );
-  const stats = { sent: 0, retried: 0, dead: 0, skipped: 0 };
-  for (const n of rows) {
+  const stats = { sent: 0, retried: 0, skipped: 0 };
+  for (const m of await queue.receive(10, wait)) {
+    let notificationId = "";
     try {
+      const msg = JSON.parse(m.body) as { notificationId: string; tenantId: string };
+      notificationId = msg.notificationId;
+      const n = (
+        await pool.query<Row>(
+          `SELECT id::text, tenant_id::text, booking_id::text, type, channel, status, attempts, scheduled_for, payload
+             FROM notifications WHERE id = $1 AND tenant_id = $2`,
+          [msg.notificationId, msg.tenantId],
+        )
+      ).rows[0];
+      // Already handled, cancelled, or this message belongs to an earlier schedule: nothing to do.
+      if (
+        !n ||
+        !["pending", "failed"].includes(n.status) ||
+        n.scheduled_for.getTime() > Date.now() + earlyToleranceMs
+      ) {
+        await queue.delete(m);
+        stats.skipped++;
+        continue;
+      }
       const ctx = await load(pool, n);
-      // The booking may have changed since the notification was scheduled.
       if (
         !ctx ||
         (n.type !== "booking_cancelled" &&
-          ctx.status !== "confirmed" &&
-          n.type !== "booking_rescheduled") ||
+          n.type !== "booking_rescheduled" &&
+          ctx.status !== "confirmed") ||
         (n.type.startsWith("reminder") && ctx.start_at.getTime() <= Date.now())
       ) {
-        await finish(pool, n.id, "cancelled");
+        await setStatus(pool, n.id, "cancelled");
+        await queue.delete(m);
         stats.skipped++;
         continue;
       }
@@ -63,45 +119,65 @@ export async function deliverDue(
       if (!channel) throw new Error(`no channel adapter for ${n.channel}`);
       const to = n.payload.to ?? (n.channel === "email" ? ctx.email : ctx.phone);
       if (!to) throw new Error("customer has no address for this channel");
-      const msg = renderMessage(n.type, ctx);
+      const text = renderMessage(n.type, ctx);
       await channel.send({
         notificationId: n.id,
         tenantId: n.tenant_id,
         to,
-        subject: msg.subject,
-        body: msg.body,
+        subject: text.subject,
+        body: text.body,
       });
-      await finish(pool, n.id, "sent");
+      await setStatus(pool, n.id, "sent", 1);
+      await queue.delete(m);
       stats.sent++;
     } catch (err) {
-      const attempts = n.attempts + 1;
-      const dead = attempts >= maxAttempts;
-      await pool.query(
-        `UPDATE notifications SET status = $2, attempts = $3, last_error = $4, locked_until = NULL,
-                next_attempt_at = now() + ($5::int * interval '1 millisecond')
-          WHERE id = $1::uuid AND status IN ('pending','failed')`,
-        [
-          n.id,
-          dead ? "dead" : "failed",
-          attempts,
-          String((err as Error).message).slice(0, 500),
-          backoffBaseMs * 2 ** (attempts - 1),
-        ],
-      );
-      if (dead) stats.dead++;
-      else stats.retried++;
+      if (notificationId)
+        await pool
+          .query(
+            `UPDATE notifications SET status = 'failed', attempts = $2, last_error = $3, next_attempt_at = now() + ($4::int * interval '1 second')
+              WHERE id = $1::uuid AND status IN ('pending','failed')`,
+            [
+              notificationId,
+              m.receiveCount,
+              String((err as Error).message).slice(0, 500),
+              backoffSeconds(m.receiveCount, backoffBaseMs),
+            ],
+          )
+          .catch(() => undefined);
+      await queue.delay(m, backoffSeconds(m.receiveCount, backoffBaseMs)).catch(() => undefined);
+      stats.retried++;
     }
   }
   return stats;
 }
 
-async function finish(pool: Pool, id: string, status: "sent" | "cancelled") {
+/** Parks notifications whose messages SQS gave up on (the dead-letter queue) as `dead`. */
+export async function consumeDeadLetters(pool: Pool, dlq: SqsQueue, wait = 1): Promise<number> {
+  let n = 0;
+  for (const m of await dlq.receive(10, wait)) {
+    try {
+      const msg = JSON.parse(m.body) as { notificationId?: string };
+      if (msg.notificationId)
+        await pool.query(
+          `UPDATE notifications SET status = 'dead', locked_until = NULL, last_error = COALESCE(last_error, 'moved to dead-letter queue') WHERE id = $1::uuid AND status IN ('pending','failed')`,
+          [msg.notificationId],
+        );
+      await dlq.delete(m);
+      n++;
+    } catch {
+      /* leave it; it will be seen again */
+    }
+  }
+  return n;
+}
+
+async function setStatus(pool: Pool, id: string, status: "sent" | "cancelled", attemptInc = 0) {
   // Guarded so a notification cancelled while it was being sent is not flipped back.
   await pool.query(
-    `UPDATE notifications SET status = $2, attempts = attempts + $3, last_error = NULL, locked_until = NULL,
+    `UPDATE notifications SET status = $2, attempts = attempts + $3, last_error = NULL,
             sent_at = CASE WHEN $2 = 'sent' THEN now() END
       WHERE id = $1::uuid AND status IN ('pending','failed')`,
-    [id, status, status === "sent" ? 1 : 0],
+    [id, status, attemptInc],
   );
 }
 
@@ -116,7 +192,7 @@ export interface MessageContext {
   phone: string | null;
 }
 
-async function load(pool: Pool, n: Claimed): Promise<MessageContext | null> {
+async function load(pool: Pool, n: Row): Promise<MessageContext | null> {
   if (!n.booking_id) return null;
   const { rows } = await pool.query<MessageContext>(
     `SELECT b.status, b.start_at, br.timezone, s.name AS service_name, br.name AS branch_name,

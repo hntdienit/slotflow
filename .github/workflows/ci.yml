@@ -17,7 +17,14 @@ jobs:
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+      localstack:
+        image: localstack/localstack:4.12.0
+        env: { SERVICES: "sqs,ses" }
+        ports: ["4566:4566"]
+        options: >-
+          --health-cmd "curl -fs http://localhost:4566/_localstack/health" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
+      AWS_ENDPOINT_URL: http://localhost:4566
       TEST_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
       REDIS_URL: redis://localhost:6379
     steps:

@@ -142,7 +142,7 @@ async function upsert(
   // The start time moved: re-arm (or drop it if the new reminder time already passed).
   await c.query(
     `UPDATE notifications SET scheduled_for = $2, status = $3, attempts = 0, last_error = NULL, sent_at = NULL,
-            next_attempt_at = NULL, locked_until = NULL, payload = $4 WHERE id = $1::uuid`,
+            next_attempt_at = NULL, locked_until = NULL, enqueued_at = NULL, payload = $4 WHERE id = $1::uuid`,
     [row.id, at, past ? "cancelled" : "pending", JSON.stringify({ to })],
   );
 }

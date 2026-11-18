@@ -1,8 +1,7 @@
 export interface Config {
   databaseUrl: string;
   redisUrl?: string;
-  smtpHost: string;
-  smtpPort: number;
+  queuePrefix: string;
   mailFrom: string;
   maxAttempts: number;
   backoffBaseMs: number;
@@ -15,9 +14,8 @@ export function loadConfig(env = process.env): Config {
   return {
     databaseUrl,
     redisUrl: env.REDIS_URL,
-    smtpHost: env.SMTP_HOST ?? "localhost",
-    smtpPort: Number(env.SMTP_PORT ?? 1025),
-    mailFrom: env.MAIL_FROM ?? "SlotFlow <no-reply@slotflow.local>",
+    queuePrefix: env.QUEUE_PREFIX ?? "slotflow-",
+    mailFrom: env.MAIL_FROM ?? "no-reply@slotflow.local",
     maxAttempts: Number(env.NOTIFY_MAX_ATTEMPTS ?? 5),
     backoffBaseMs: Number(env.NOTIFY_BACKOFF_BASE_MS ?? 5000),
   };

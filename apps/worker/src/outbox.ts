@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { backoffSeconds, type SqsQueue } from "./queue";
 import { noticeRescheduled, syncBookingNotifications } from "./reminders";
 
 export interface OutboxRow {
@@ -6,11 +7,10 @@ export interface OutboxRow {
   tenant_id: string;
   type: string;
   payload: Record<string, unknown>;
-  attempts: number;
 }
 export type Handler = (c: PoolClient, e: OutboxRow) => Promise<void>;
 
-/** event type -> handler. Handlers must be idempotent: delivery is at-least-once. */
+/** event type -> handler. Handlers must be idempotent: SQS delivers at least once. */
 export const handlers: Record<string, Handler> = {
   "booking.held": async () => undefined,
   "booking.confirmed": bookingChanged,
@@ -30,70 +30,75 @@ async function bookingChanged(c: PoolClient, e: OutboxRow) {
   await syncBookingNotifications(c, e.tenant_id, String(e.payload.bookingId));
 }
 
-export interface DispatchOptions {
-  batch?: number;
-  maxAttempts?: number;
-  backoffBaseMs?: number;
-  handlers?: Record<string, Handler>;
-}
-
 /**
- * Claims a batch of pending events (FOR UPDATE SKIP LOCKED: any number of workers can run), runs each
- * handler inside a savepoint, and marks it dispatched. A failing event is retried with backoff and
- * parked (dead_at) after maxAttempts, without blocking the events behind it. If the worker dies, the
- * transaction rolls back and the batch is simply claimed again.
+ * Outbox relay: moves committed outbox rows onto the events queue. The send happens before the commit
+ * that marks the rows dispatched, so a crash can only duplicate a message (consumers are idempotent),
+ * never lose one. SKIP LOCKED lets several relays run side by side.
  */
-export async function dispatchOutbox(
-  pool: Pool,
-  o: DispatchOptions = {},
-): Promise<{ done: number; failed: number }> {
-  const { batch = 50, maxAttempts = 5, backoffBaseMs = 5000, handlers: h = handlers } = o;
+export async function relayOutbox(pool: Pool, events: SqsQueue, batch = 100): Promise<number> {
   const c = await pool.connect();
-  let done = 0;
-  let failed = 0;
   try {
     await c.query("BEGIN");
     const { rows } = await c.query<OutboxRow>(
-      `SELECT seq::text, tenant_id::text, type, payload, attempts FROM outbox_events
-        WHERE dispatched_at IS NULL AND dead_at IS NULL AND (next_attempt_at IS NULL OR next_attempt_at <= now())
-        ORDER BY seq LIMIT $1 FOR UPDATE SKIP LOCKED`,
+      `SELECT seq::text, tenant_id::text, type, payload FROM outbox_events
+        WHERE dispatched_at IS NULL AND dead_at IS NULL ORDER BY seq LIMIT $1 FOR UPDATE SKIP LOCKED`,
       [batch],
     );
-    for (const e of rows) {
-      await c.query("SAVEPOINT ev");
-      try {
-        await (h[e.type] ?? (async () => undefined))(c, e);
-        await c.query("RELEASE SAVEPOINT ev");
-        await c.query(
-          "UPDATE outbox_events SET dispatched_at = now(), last_error = NULL WHERE seq = $1",
-          [e.seq],
-        );
-        done++;
-      } catch (err) {
-        await c.query("ROLLBACK TO SAVEPOINT ev");
-        const attempts = e.attempts + 1;
-        const dead = attempts >= maxAttempts;
-        await c.query(
-          `UPDATE outbox_events SET attempts = $2, last_error = $3,
-                  next_attempt_at = now() + ($4::int * interval '1 millisecond'),
-                  dead_at = CASE WHEN $5 THEN now() END WHERE seq = $1`,
-          [
-            e.seq,
-            attempts,
-            String((err as Error).message).slice(0, 500),
-            backoffBaseMs * 2 ** (attempts - 1),
-            dead,
-          ],
-        );
-        failed++;
-      }
+    if (rows.length) {
+      await events.sendBatch(rows.map((r) => ({ body: JSON.stringify(r) })));
+      await c.query(
+        "UPDATE outbox_events SET dispatched_at = now() WHERE seq = ANY($1::bigint[])",
+        [rows.map((r) => r.seq)],
+      );
     }
     await c.query("COMMIT");
+    return rows.length;
   } catch (err) {
     await c.query("ROLLBACK").catch(() => undefined);
     throw err;
   } finally {
     c.release();
+  }
+}
+
+export interface ConsumeOptions {
+  handlers?: Record<string, Handler>;
+  backoffBaseMs?: number;
+  wait?: number;
+}
+
+/**
+ * Consumes events: runs the handler in a transaction, then deletes the message. A failure leaves the
+ * message on the queue with a growing delay; after maxReceiveCount deliveries SQS moves it to the DLQ.
+ */
+export async function consumeEvents(
+  pool: Pool,
+  events: SqsQueue,
+  o: ConsumeOptions = {},
+): Promise<{ done: number; failed: number }> {
+  const { handlers: h = handlers, backoffBaseMs = 5000, wait = 1 } = o;
+  let done = 0;
+  let failed = 0;
+  for (const m of await events.receive(10, wait)) {
+    try {
+      const e = JSON.parse(m.body) as OutboxRow;
+      const c = await pool.connect();
+      try {
+        await c.query("BEGIN");
+        await (h[e.type] ?? (async () => undefined))(c, e);
+        await c.query("COMMIT");
+      } catch (err) {
+        await c.query("ROLLBACK").catch(() => undefined);
+        throw err;
+      } finally {
+        c.release();
+      }
+      await events.delete(m);
+      done++;
+    } catch {
+      await events.delay(m, backoffSeconds(m.receiveCount, backoffBaseMs)).catch(() => undefined);
+      failed++;
+    }
   }
   return { done, failed };
 }

@@ -23,9 +23,19 @@ services:
       timeout: 3s
       retries: 20
 
-  mailhog:
-    image: mailhog/mailhog:v1.0.1
-    ports: ["1025:1025", "8025:8025"]
+  # AWS emulator for SQS (queues, delays, dead letters) and SES (email). Pinned to 4.12, the last
+  # release that needs no auth token; newer LocalStack images require LOCALSTACK_AUTH_TOKEN.
+  # Sent mail can be inspected at http://localhost:4566/_aws/ses
+  localstack:
+    image: localstack/localstack:4.12.0
+    environment:
+      SERVICES: sqs,ses
+    ports: ["4566:4566"]
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   # One-shot: applies SQL migrations and seeds fake clinic data as the admin (superuser) role.
   migrate:
@@ -54,12 +64,11 @@ services:
     environment:
       WORKER_DATABASE_URL: postgres://slotflow_worker:slotflow_worker@postgres:5432/slotflow
       REDIS_URL: redis://redis:6379
-      SMTP_HOST: mailhog
-      SMTP_PORT: "1025"
+      AWS_ENDPOINT_URL: http://localstack:4566
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
-      mailhog: { condition: service_started }
+      localstack: { condition: service_healthy }
 
 volumes:
   pgdata:
