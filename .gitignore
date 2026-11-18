@@ -6,3 +6,4 @@ dist
 coverage
 apps/api/src/generated
 dump.rdb
+.archify/

@@ -35,3 +35,11 @@ export async function sweepExpiredHolds(
     )
     .map((r) => ({ tenantId: r.tenant_id, branchId: r.branch_id }));
 }
+
+/** Waiting entries whose window has passed can never be matched; close them so the queue stays short. */
+export async function expireWaitlistEntries(pool: Pool): Promise<number> {
+  const r = await pool.query(
+    "UPDATE waitlist_entries SET status = 'expired' WHERE status = 'waiting' AND window_end <= now()",
+  );
+  return r.rowCount ?? 0;
+}

@@ -6,7 +6,8 @@ import { awsConfig, sesClient, sqsClient } from "../src/aws";
 import { consumeDeadLetters, consumeNotifications, enqueueDue } from "../src/delivery";
 import { ensureInfrastructure, type Queues } from "../src/infra";
 import { consumeEvents, handlers, relayOutbox, type Handler } from "../src/outbox";
-import { sweepExpiredHolds } from "../src/sweeper";
+import { expireWaitlistEntries, sweepExpiredHolds } from "../src/sweeper";
+import { configureWaitlist, type ReleaseRequest, type WaitlistClient } from "../src/waitlist";
 
 let admin: pg.Pool; // superuser: arranges data
 let pool: pg.Pool; // slotflow_worker: what the worker really connects as
@@ -403,8 +404,13 @@ describe("delivery through SQS: delay, retry, dead letter", () => {
     expect(taken).toHaveLength(1);
     const email = new FakeChannel("email");
     expect((await deliver([email, new FakeChannel("sms")])).sent).toBe(0); // still invisible
-    await new Promise((r) => setTimeout(r, 2500)); // visibility timeout (2s) passes
-    expect((await deliver([email, new FakeChannel("sms")])).sent).toBe(1);
+    // Visibility timeout (2s) passes; poll instead of one fixed sleep so a loaded machine does not flake.
+    let sent = 0;
+    for (let i = 0; i < 12 && !sent; i++) {
+      await new Promise((r) => setTimeout(r, 700));
+      sent = (await deliver([email, new FakeChannel("sms")])).sent;
+    }
+    expect(sent).toBe(1);
   });
 
   it("sends real email through SES on LocalStack", async () => {
@@ -514,5 +520,149 @@ describe("worker role", () => {
         a.tenant,
       ]),
     ).rejects.toMatchObject({ code: "42501" });
+  });
+});
+
+class FakeWaitlist implements WaitlistClient {
+  calls: { tenantId: string; req: ReleaseRequest }[] = [];
+  constructor(private failTimes = 0) {}
+  async release(tenantId: string, req: ReleaseRequest) {
+    if (this.failTimes > 0) {
+      this.failTimes--;
+      throw new Error("api down");
+    }
+    this.calls.push({ tenantId, req });
+  }
+}
+const emitRaw = (w: World, type: string, payload: Record<string, unknown>) =>
+  q_("INSERT INTO outbox_events (tenant_id, type, payload) VALUES ($1,$2,$3)", [
+    w.tenant,
+    type,
+    JSON.stringify(payload),
+  ]);
+async function entryAndOffer(w: World, holdId: string, expiresInMin = 10) {
+  const entry = (
+    await q_(
+      `INSERT INTO waitlist_entries (tenant_id, branch_id, service_id, customer_id, window_start, window_end, status)
+       VALUES ($1,$2,$3,$4, now(), now() + interval '2 days', 'offered') RETURNING id`,
+      [w.tenant, w.branch, w.service, w.customer],
+    )
+  )[0].id as string;
+  const offer = (
+    await q_(
+      `INSERT INTO waitlist_offers (tenant_id, entry_id, booking_id, expires_at)
+       VALUES ($1,$2,$3, now() + ($4::int * interval '1 minute')) RETURNING id`,
+      [w.tenant, entry, holdId, expiresInMin],
+    )
+  )[0].id as string;
+  return { entry, offer };
+}
+
+describe("waitlist", () => {
+  afterAll(() => configureWaitlist(null));
+
+  it("a freed slot asks the API to offer it; a reschedule passes the OLD time; failures are retried", async () => {
+    const w = await world();
+    const fake = new FakeWaitlist(1);
+    configureWaitlist(fake);
+    const b1 = await book(w, { status: "cancelled" });
+    const b2 = await book(w, { status: "expired", holdExpiresInMin: -1 });
+    const old = { startAt: "2030-01-01T09:00:00.000Z", endAt: "2030-01-01T09:30:00.000Z" };
+    await emitRaw(w, "slot.released", { bookingId: b1, ...old });
+    await emitRaw(w, "booking.expired", { bookingId: b2, startAt: old.startAt, endAt: old.endAt });
+    await drain();
+    // First attempt failed (api down) and was retried by the queue, so both end up delivered exactly once.
+    expect(fake.calls).toHaveLength(2);
+    const rel = fake.calls.find((c) => c.req.bookingId === b1)!;
+    expect(rel.tenantId).toBe(w.tenant);
+    expect(rel.req).toEqual({ bookingId: b1, ...old });
+    // booking.expired releases the booking's own range: the API reads it, so no range is sent.
+    expect(fake.calls.find((c) => c.req.bookingId === b2)!.req).toEqual({ bookingId: b2 });
+  });
+
+  it("without an API client, freed slots are ignored instead of failing", async () => {
+    const w = await world();
+    configureWaitlist(null);
+    await emitRaw(w, "slot.released", { bookingId: await book(w, { status: "cancelled" }) });
+    await drain();
+    expect(await q_("SELECT 1 FROM outbox_events WHERE dispatched_at IS NULL")).toHaveLength(0);
+  });
+
+  it("an offer notifies on each channel once and the message carries the offer id and deadline", async () => {
+    const w = await world();
+    const hold = await book(w, { status: "held", holdExpiresInMin: 10 });
+    const { offer } = await entryAndOffer(w, hold);
+    const payload = {
+      offerId: offer,
+      entryId: "x",
+      bookingId: hold,
+      customerId: w.customer,
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    };
+    await emitRaw(w, "waitlist.offered", payload);
+    await emitRaw(w, "waitlist.offered", payload); // redelivered
+    await drain();
+    expect((await notes(w, hold)).map((n) => `${n.type}/${n.channel}`)).toEqual([
+      "waitlist_offer/email",
+      "waitlist_offer/sms",
+    ]);
+    const email = new FakeChannel("email");
+    const sms = new FakeChannel("sms");
+    await pending();
+    await deliver([email, sms]);
+    expect(email.sent).toHaveLength(1);
+    expect(sms.sent).toHaveLength(1);
+    expect(email.sent[0].body).toContain(offer);
+    expect(email.sent[0].subject).toBe("Có chỗ trống cho bạn"); // Ho Chi Minh branch -> Vietnamese
+  });
+
+  it("an offer that was declined, accepted or lapsed before delivery is not sent", async () => {
+    for (const how of ["declined", "accepted", "expired-time", "hold-gone"] as const) {
+      const w = await world();
+      const hold = await book(w, { status: "held", holdExpiresInMin: 10 });
+      const { offer } = await entryAndOffer(w, hold, how === "expired-time" ? -1 : 10);
+      await emitRaw(w, "waitlist.offered", {
+        offerId: offer,
+        bookingId: hold,
+        customerId: w.customer,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+      await drain();
+      if (how === "declined" || how === "accepted")
+        await q_("UPDATE waitlist_offers SET status=$2 WHERE id=$1", [offer, how]);
+      if (how === "hold-gone")
+        await q_("UPDATE bookings SET status='cancelled' WHERE id=$1", [hold]);
+      const email = new FakeChannel("email");
+      await pending();
+      await deliver([email, new FakeChannel("sms")]);
+      expect(email.sent, how).toHaveLength(0);
+      expect(
+        (await notes(w, hold)).every((n) => n.status === "cancelled"),
+        how,
+      ).toBe(true);
+    }
+  });
+
+  it("closes waiting entries whose window has passed and leaves the rest", async () => {
+    const w = await world();
+    const mk = async (start: string, end: string, status = "waiting") =>
+      (
+        await q_(
+          `INSERT INTO waitlist_entries (tenant_id, branch_id, service_id, customer_id, window_start, window_end, status)
+           VALUES ($1,$2,$3,$4, now() + $5::interval, now() + $6::interval, $7) RETURNING id`,
+          [w.tenant, w.branch, w.service, w.customer, start, end, status],
+        )
+      )[0].id as string;
+    const past = await mk("-3 days", "-1 day");
+    const future = await mk("1 day", "3 days");
+    const offered = await mk("-3 days", "-1 day", "offered");
+    expect(await expireWaitlistEntries(pool)).toBeGreaterThanOrEqual(1);
+    const st = async (id: string) =>
+      (await q_("SELECT status FROM waitlist_entries WHERE id=$1", [id]))[0].status;
+    expect([await st(past), await st(future), await st(offered)]).toEqual([
+      "expired",
+      "waiting",
+      "offered",
+    ]);
   });
 });

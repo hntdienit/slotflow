@@ -10,7 +10,7 @@ guarded AI booking assistant (Vietnamese + English).
 
 ## Status
 
-Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) and **M4** (outbox, reminders, hold sweeper, SQS queues with dead letters, SES email, SMS mock) done. Roadmap: catalog & RLS → availability engine → safe booking →
+Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) **M4** (outbox, reminders, hold sweeper, SQS queues with dead letters, SES email, SMS mock) and **M5** (waitlist: FIFO offers backed by holds, accept/decline/expiry, notifications) done. Roadmap: catalog & RLS → availability engine → safe booking →
 background jobs → waitlist → AI assistant → UI → polish. All data is fake.
 
 ## Quick start
@@ -39,6 +39,7 @@ domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 - [ADR-004 Availability engine, DST and cache](docs/adr/0004-availability-engine.md)
 - [ADR-005 Booking lifecycle, holds and idempotency](docs/adr/0005-booking-lifecycle.md)
 - [ADR-006 Background jobs: outbox, SQS, SES](docs/adr/0006-background-jobs.md)
+- [ADR-007 Waitlist: FIFO offers backed by real holds](docs/adr/0007-waitlist.md)
 
 ## Benchmarks
 

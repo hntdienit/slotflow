@@ -51,6 +51,7 @@ services:
     environment:
       # Runs as the non-superuser role slotflow_app so Row Level Security is always enforced.
       DATABASE_URL: postgres://slotflow_app:slotflow_app@postgres:5432/slotflow
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key}
       REDIS_URL: redis://redis:6379
       PORT: "3000"
       LLM_PROVIDER: mock
@@ -65,6 +66,8 @@ services:
       WORKER_DATABASE_URL: postgres://slotflow_worker:slotflow_worker@postgres:5432/slotflow
       REDIS_URL: redis://redis:6379
       AWS_ENDPOINT_URL: http://localstack:4566
+      API_URL: http://api:3000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key}
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }

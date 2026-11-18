@@ -7,7 +7,8 @@ import { loadConfig } from "./config";
 import { consumeDeadLetters, consumeNotifications, enqueueDue } from "./delivery";
 import { ensureInfrastructure } from "./infra";
 import { consumeEvents, relayOutbox } from "./outbox";
-import { sweepExpiredHolds } from "./sweeper";
+import { expireWaitlistEntries, sweepExpiredHolds } from "./sweeper";
+import { HttpWaitlistClient, configureWaitlist } from "./waitlist";
 
 const log = pino({ name: "slotflow-worker" });
 const cfg = loadConfig();
@@ -22,6 +23,11 @@ const redis = cfg.redisUrl
     })
   : null;
 const channels = [new SesEmailChannel(ses, cfg.mailFrom), new SmsMockChannel(pool)];
+
+if (cfg.apiUrl && cfg.internalKey)
+  configureWaitlist(new HttpWaitlistClient(cfg.apiUrl, cfg.internalKey));
+else
+  log.warn("API_URL / INTERNAL_API_KEY not set: freed slots will not be offered to the waitlist");
 
 let stopping = false;
 const timers: NodeJS.Timeout[] = [];
@@ -78,6 +84,7 @@ async function main() {
     }
     return { expired: branches.length };
   });
+  every("waitlist-expiry", 60_000, () => expireWaitlistEntries(pool));
   log.info("worker started: outbox relay, SQS consumers, hold sweeper");
 }
 

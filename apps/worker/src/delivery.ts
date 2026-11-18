@@ -55,7 +55,7 @@ interface Row {
   status: string;
   attempts: number;
   scheduled_for: Date;
-  payload: { to?: string };
+  payload: { to?: string; offerId?: string; expiresAt?: string };
 }
 
 export interface DeliveryOptions {
@@ -103,13 +103,7 @@ export async function consumeNotifications(
         continue;
       }
       const ctx = await load(pool, n);
-      if (
-        !ctx ||
-        (n.type !== "booking_cancelled" &&
-          n.type !== "booking_rescheduled" &&
-          ctx.status !== "confirmed") ||
-        (n.type.startsWith("reminder") && ctx.start_at.getTime() <= Date.now())
-      ) {
+      if (!ctx || !(await stillWanted(pool, n, ctx))) {
         await setStatus(pool, n.id, "cancelled");
         await queue.delete(m);
         stats.skipped++;
@@ -119,7 +113,7 @@ export async function consumeNotifications(
       if (!channel) throw new Error(`no channel adapter for ${n.channel}`);
       const to = n.payload.to ?? (n.channel === "email" ? ctx.email : ctx.phone);
       if (!to) throw new Error("customer has no address for this channel");
-      const text = renderMessage(n.type, ctx);
+      const text = renderMessage(n.type, ctx, n.payload);
       await channel.send({
         notificationId: n.id,
         tenantId: n.tenant_id,
@@ -169,6 +163,22 @@ export async function consumeDeadLetters(pool: Pool, dlq: SqsQueue, wait = 1): P
     }
   }
   return n;
+}
+
+/** Is this notification still true? Re-checked against the database right before sending. */
+async function stillWanted(pool: Pool, n: Row, ctx: MessageContext): Promise<boolean> {
+  if (n.type === "booking_cancelled" || n.type === "booking_rescheduled") return true;
+  if (n.type === "waitlist_offer") {
+    // Only while the hold exists and the offer is open and unexpired.
+    if (ctx.status !== "held" || !n.payload.offerId) return false;
+    const { rowCount } = await pool.query(
+      "SELECT 1 FROM waitlist_offers WHERE id = $1 AND tenant_id = $2 AND status = 'open' AND expires_at > now()",
+      [n.payload.offerId, n.tenant_id],
+    );
+    return !!rowCount;
+  }
+  if (ctx.status !== "confirmed") return false;
+  return !(n.type.startsWith("reminder") && ctx.start_at.getTime() <= Date.now());
 }
 
 async function setStatus(pool: Pool, id: string, status: "sent" | "cancelled", attemptInc = 0) {

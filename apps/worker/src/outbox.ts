@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { backoffSeconds, type SqsQueue } from "./queue";
 import { noticeRescheduled, syncBookingNotifications } from "./reminders";
+import { noticeOffer, waitlistClient } from "./waitlist";
 
 export interface OutboxRow {
   seq: string;
@@ -15,7 +16,10 @@ export const handlers: Record<string, Handler> = {
   "booking.held": async () => undefined,
   "booking.confirmed": bookingChanged,
   "booking.cancelled": bookingChanged,
-  "booking.expired": bookingChanged,
+  "booking.expired": async (c, e) => {
+    await bookingChanged(c, e);
+    await offerFreedSlot(e);
+  },
   "booking.no_show": bookingChanged,
   "booking.checked_in": bookingChanged,
   "booking.completed": bookingChanged,
@@ -23,8 +27,33 @@ export const handlers: Record<string, Handler> = {
     await bookingChanged(c, e);
     await noticeRescheduled(c, e.tenant_id, String(e.payload.bookingId));
   },
-  "slot.released": async () => undefined, // waitlist offers arrive in M5
+  "slot.released": async (_c, e) => offerFreedSlot(e),
+  "waitlist.offered": async (c, e) => {
+    const p = e.payload;
+    await noticeOffer(c, e.tenant_id, {
+      offerId: String(p.offerId),
+      bookingId: String(p.bookingId),
+      customerId: String(p.customerId),
+      expiresAt: String(p.expiresAt),
+    });
+  },
 };
+
+/**
+ * A slot became free: ask the API to offer it to the waitlist. The call is safe to repeat (the API decides
+ * from live availability and allows one open offer per slot); a failure throws so SQS retries the event.
+ * The range is only sent when the event carries one (a reschedule frees the OLD time, not the booking's current one).
+ */
+async function offerFreedSlot(e: OutboxRow) {
+  const w = waitlistClient();
+  if (!w) return;
+  const p = e.payload;
+  const range = e.type === "slot.released" && p.startAt && p.endAt;
+  await w.release(e.tenant_id, {
+    bookingId: String(p.bookingId),
+    ...(range ? { startAt: String(p.startAt), endAt: String(p.endAt) } : {}),
+  });
+}
 
 async function bookingChanged(c: PoolClient, e: OutboxRow) {
   await syncBookingNotifications(c, e.tenant_id, String(e.payload.bookingId));

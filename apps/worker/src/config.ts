@@ -5,6 +5,9 @@ export interface Config {
   mailFrom: string;
   maxAttempts: number;
   backoffBaseMs: number;
+  /** Waitlist matching runs in the API; both must be set for the worker to trigger it. */
+  apiUrl?: string;
+  internalKey?: string;
 }
 
 export function loadConfig(env = process.env): Config {
@@ -18,5 +21,7 @@ export function loadConfig(env = process.env): Config {
     mailFrom: env.MAIL_FROM ?? "no-reply@slotflow.local",
     maxAttempts: Number(env.NOTIFY_MAX_ATTEMPTS ?? 5),
     backoffBaseMs: Number(env.NOTIFY_BACKOFF_BASE_MS ?? 5000),
+    apiUrl: env.API_URL,
+    internalKey: env.INTERNAL_API_KEY,
   };
 }

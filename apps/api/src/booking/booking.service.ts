@@ -21,7 +21,14 @@ export const HOLD_MINUTES = Number(process.env.HOLD_MINUTES ?? 5);
 const MAX_CANDIDATES = 12;
 const MAX_TX_RETRIES = 4;
 
-export type Source = "web" | "ai" | "admin";
+export type Source = "web" | "ai" | "admin" | "waitlist";
+
+export interface PlaceOptions {
+  /** Overrides HOLD_MINUTES for this hold (waitlist offers last longer). */
+  holdMinutes?: number;
+  /** Runs inside the booking transaction, so extra writes commit or roll back with the booking. */
+  afterCreate?: (tx: Tx, booking: BookingRow) => Promise<void>;
+}
 export interface PlaceInput {
   branchId: string;
   serviceId: string;
@@ -31,7 +38,7 @@ export interface PlaceInput {
   source: Source;
 }
 
-type BookingRow = NonNullable<Awaited<ReturnType<Tx["booking"]["findUnique"]>>>;
+export type BookingRow = NonNullable<Awaited<ReturnType<Tx["booking"]["findUnique"]>>>;
 
 export interface BookingDto {
   id: string;
@@ -85,6 +92,7 @@ export class BookingService {
     mode: "held" | "confirmed",
     idempotencyKey: string | undefined,
     actor: string,
+    opts: PlaceOptions = {},
   ) {
     const hash = createHash("sha256")
       .update(
@@ -134,7 +142,10 @@ export class BookingService {
                 status: mode,
                 startAt: input.startAt,
                 endAt: new Date(input.startAt.getTime() + service.durationMin * MIN),
-                holdExpiresAt: mode === "held" ? new Date(Date.now() + HOLD_MINUTES * MIN) : null,
+                holdExpiresAt:
+                  mode === "held"
+                    ? new Date(Date.now() + (opts.holdMinutes ?? HOLD_MINUTES) * MIN)
+                    : null,
                 idempotencyKey: idempotencyKey ?? null,
                 requestHash: idempotencyKey ? hash : null,
                 source: input.source,
@@ -157,6 +168,7 @@ export class BookingService {
               { staffId: cand.staffId, resourceId: cand.resourceId },
               mode === "held" ? "booking.held" : "booking.confirmed",
             );
+            await opts.afterCreate?.(tx, booking);
             return { dto: await this.toDto(tx, booking), freed };
           }),
         );

@@ -4,11 +4,19 @@ import { BookingModule } from "./booking/booking.module";
 import { CacheModule } from "./cache/cache.module";
 import { CatalogModule } from "./catalog/catalog.module";
 import { DbModule } from "./db/db.module";
+import { WaitlistModule } from "./waitlist/waitlist.module";
 import { HealthController } from "./health.controller";
 import { HealthService } from "./health.service";
 
 @Module({
-  imports: [DbModule, CacheModule, CatalogModule, AvailabilityModule, BookingModule],
+  imports: [
+    DbModule,
+    CacheModule,
+    CatalogModule,
+    AvailabilityModule,
+    BookingModule,
+    WaitlistModule,
+  ],
   controllers: [HealthController],
   providers: [HealthService],
 })
