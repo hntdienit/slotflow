@@ -27,25 +27,35 @@ services:
     image: mailhog/mailhog:v1.0.1
     ports: ["1025:1025", "8025:8025"]
 
+  # One-shot: applies SQL migrations and seeds fake clinic data as the admin (superuser) role.
+  migrate:
+    build: { context: .., dockerfile: infra/Dockerfile, target: api }
+    command: ["sh", "-c", "node dist/migrate-cli.js && node dist/seed-cli.js"]
+    environment:
+      DATABASE_ADMIN_URL: postgres://slotflow:slotflow@postgres:5432/slotflow
+    depends_on:
+      postgres: { condition: service_healthy }
+
   api:
     build: { context: .., dockerfile: infra/Dockerfile, target: api }
     environment:
-      DATABASE_URL: postgres://slotflow:slotflow@postgres:5432/slotflow
+      # Runs as the non-superuser role slotflow_app so Row Level Security is always enforced.
+      DATABASE_URL: postgres://slotflow_app:slotflow_app@postgres:5432/slotflow
       REDIS_URL: redis://redis:6379
       PORT: "3000"
       LLM_PROVIDER: mock
     ports: ["3000:3000"]
     depends_on:
-      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
 
   worker:
     build: { context: .., dockerfile: infra/Dockerfile, target: worker }
     environment:
-      DATABASE_URL: postgres://slotflow:slotflow@postgres:5432/slotflow
+      DATABASE_URL: postgres://slotflow_app:slotflow_app@postgres:5432/slotflow
       REDIS_URL: redis://redis:6379
     depends_on:
-      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
 
 volumes:
