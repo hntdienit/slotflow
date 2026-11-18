@@ -1,0 +1,52 @@
+name: slotflow
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: slotflow
+      POSTGRES_PASSWORD: slotflow
+      POSTGRES_DB: slotflow
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slotflow -d slotflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports: ["1025:1025", "8025:8025"]
+
+  api:
+    build: { context: .., dockerfile: infra/Dockerfile, target: api }
+    environment:
+      DATABASE_URL: postgres://slotflow:slotflow@postgres:5432/slotflow
+      REDIS_URL: redis://redis:6379
+      PORT: "3000"
+      LLM_PROVIDER: mock
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: { context: .., dockerfile: infra/Dockerfile, target: worker }
+    environment:
+      DATABASE_URL: postgres://slotflow:slotflow@postgres:5432/slotflow
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+volumes:
+  pgdata:

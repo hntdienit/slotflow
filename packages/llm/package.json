@@ -1,0 +1,10 @@
+{
+  "name": "@slotflow/llm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "echo 'llm: implemented in M6'",
+    "test": "echo 'llm: implemented in M6'"
+  }
+}
