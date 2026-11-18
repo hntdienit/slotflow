@@ -28,7 +28,7 @@ Local dev: `pnpm install` (generates the Prisma client) then `pnpm lint && pnpm 
 
 ## Layout
 
-`apps/api` (NestJS) · `apps/worker` (BullMQ) · `apps/web` (Next.js, M7) · `packages/core` (pure
+`apps/api` (NestJS) · `apps/worker` (SQS/SES) · `apps/web` (Next.js, M7) · `packages/core` (pure
 domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 
 ## Design decisions
@@ -40,6 +40,15 @@ domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 - [ADR-005 Booking lifecycle, holds and idempotency](docs/adr/0005-booking-lifecycle.md)
 - [ADR-006 Background jobs: outbox, SQS, SES](docs/adr/0006-background-jobs.md)
 - [ADR-007 Waitlist: FIFO offers backed by real holds](docs/adr/0007-waitlist.md)
+
+## Use-case diagrams
+
+Interactive workflow diagrams (standalone HTML: download the file and open it in a browser; the JSON next to each is its source).
+
+- Book safely and get reminders: [HTML](docs/diagrams/use-case-booking.html) · [JSON](docs/diagrams/use-case-booking.json)
+- Cancel and offer the slot to the waitlist: [HTML](docs/diagrams/use-case-waitlist.html) · [JSON](docs/diagrams/use-case-waitlist.json)
+
+Sơ đồ luồng use case (HTML độc lập: tải về rồi mở bằng trình duyệt; file JSON là nguồn).
 
 ## Benchmarks
 
