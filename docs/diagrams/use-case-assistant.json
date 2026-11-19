@@ -1,0 +1,67 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Use case 3: Đặt lịch bằng trợ lý AI",
+    "locale": "vi",
+    "quality_profile": "showcase",
+    "output": "docs/diagrams/use-case-assistant.html"
+  },
+  "lanes": [
+    { "id": "customer", "label": "Khách hàng" },
+    { "id": "api", "label": "API (NestJS) + trợ lý" },
+    { "id": "llm", "label": "Mô hình ngôn ngữ" },
+    { "id": "db", "label": "PostgreSQL" }
+  ],
+  "phases": [
+    { "id": "understand", "label": "Hiểu yêu cầu", "fromCol": 0, "toCol": 1 },
+    { "id": "choose", "label": "Chọn và xác nhận", "fromCol": 2, "toCol": 4, "variant": "emphasis" },
+    { "id": "book", "label": "Đặt lịch", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["u_msg", "a_state", "l_llm", "a_check", "a_propose", "u_choose", "a_summary", "u_confirm", "a_book", "d_book", "u_done"],
+  "nodes": [
+    { "id": "u_msg", "lane": "customer", "col": 0, "type": "external", "label": "Nhắn tin tự nhiên", "sublabel": "tiếng Việt hoặc tiếng Anh" },
+    { "id": "u_choose", "lane": "customer", "col": 3, "type": "external", "label": "Chọn 1, 2 hoặc 3", "sublabel": "một trong các giờ đề xuất" },
+    { "id": "u_confirm", "lane": "customer", "col": 4, "type": "external", "label": "Trả lời có", "sublabel": "xác nhận bản tóm tắt" },
+    { "id": "u_done", "lane": "customer", "col": 5, "type": "external", "label": "Nhận xác nhận", "sublabel": "email hoặc SMS như đặt thường" },
+    { "id": "a_state", "lane": "api", "col": 0, "type": "backend", "label": "Nạp hội thoại", "sublabel": "lưu ở server, hết hạn sau 30 phút" },
+    { "id": "a_check", "lane": "api", "col": 1, "type": "security", "label": "Kiểm tra kết quả", "sublabel": "Zod, id phải thuộc danh mục tenant" },
+    { "id": "a_propose", "lane": "api", "col": 2, "type": "backend", "label": "Tìm slot trống", "sublabel": "tối đa 3 lựa chọn trong 7 ngày" },
+    { "id": "a_summary", "lane": "api", "col": 3, "type": "backend", "label": "Tóm tắt chờ xác nhận", "sublabel": "server soạn, chưa ghi lịch" },
+    { "id": "a_book", "lane": "api", "col": 4, "type": "backend", "label": "Đặt lịch như khách", "sublabel": "nguồn ai, khóa ai:hội thoại:giờ" },
+    { "id": "l_llm", "lane": "llm", "col": 1, "type": "cloud", "label": "Trích xuất tham số", "sublabel": "chỉ trả JSON, không chạm DB" },
+    { "id": "d_book", "lane": "db", "col": 4, "type": "database", "label": "Lịch hẹn + outbox", "sublabel": "exclusion constraint vẫn chặn trùng" }
+  ],
+  "edges": [
+    { "id": "e1", "from": "u_msg", "to": "a_state", "label": "gửi tin nhắn", "variant": "default" },
+    { "id": "e2", "from": "a_state", "to": "l_llm", "label": "câu và danh mục", "variant": "default" },
+    { "id": "e3", "from": "l_llm", "to": "a_check", "label": "JSON", "variant": "default" },
+    { "id": "e4", "from": "a_check", "to": "a_propose", "label": "hợp lệ", "variant": "emphasis" },
+    { "id": "e5", "from": "a_propose", "to": "u_choose", "label": "các giờ trống", "variant": "default" },
+    { "id": "e6", "from": "u_choose", "to": "a_summary", "label": "số đã chọn", "variant": "default" },
+    { "id": "e7", "from": "a_summary", "to": "u_confirm", "label": "xin xác nhận", "variant": "emphasis" },
+    { "id": "e8", "from": "u_confirm", "to": "a_book", "label": "có", "variant": "emphasis" },
+    { "id": "e9", "from": "a_book", "to": "d_book", "label": "ghi lịch", "variant": "security" },
+    { "id": "e10", "from": "d_book", "to": "u_done", "label": "thông báo bất đồng bộ", "variant": "dashed", "role": "return" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Mô hình chỉ đọc hiểu",
+      "items": [
+        "Khách lấy từ token, không lấy từ nội dung tin nhắn",
+        "Chỉ đặt lịch sau khi khách trả lời có với bản tóm tắt do server soạn",
+        "Nội dung giả lệnh trong tin nhắn không đổi được thao tác"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Giới hạn hiện tại",
+      "items": [
+        "Tối đa 20 tin nhắn mỗi phút cho một khách",
+        "Chưa hủy hoặc đổi lịch được qua trợ lý",
+        "Không có ANTHROPIC_API_KEY thì chạy bộ giả lập (mock)"
+      ]
+    }
+  ]
+}
