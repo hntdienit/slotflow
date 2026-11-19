@@ -10,7 +10,7 @@ guarded AI booking assistant (Vietnamese + English).
 
 ## Status
 
-Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) **M4** (outbox, reminders, hold sweeper, SQS queues with dead letters, SES email, SMS mock) **M5** (waitlist: FIFO offers backed by holds, accept/decline/expiry, notifications) and **M6** (AI booking assistant with mandatory confirmation, offline mock provider and eval set) done. Roadmap: catalog & RLS → availability engine → safe booking →
+Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) **M4** (outbox, reminders, hold sweeper, SQS queues with dead letters, SES email, SMS mock) **M5** (waitlist: FIFO offers backed by holds, accept/decline/expiry, notifications) and **M6** (AI booking assistant with mandatory confirmation, offline mock provider and eval set) and **M7** (web: booking page with assistant chat, week dashboard, waitlist, admin, concurrency simulator; see `apps/web/README.md`) done. Roadmap: catalog & RLS → availability engine → safe booking →
 background jobs → waitlist → AI assistant → UI → polish. All data is fake.
 
 ## Quick start

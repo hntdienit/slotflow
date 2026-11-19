@@ -285,3 +285,18 @@ async function seedTenant(prisma: PrismaClient, def: TenantDef, rand: () => numb
     { timeout: 60_000, maxWait: 10_000 },
   );
 }
+
+/** Tenant ids for the dev tenant picker in the web app (needs the admin role, like seed). */
+export async function listTenants(adminUrl: string) {
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: adminUrl, max: 1 }),
+  });
+  try {
+    return await prisma.tenant.findMany({
+      select: { id: true, name: true, slug: true },
+      orderBy: { slug: "asc" },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}

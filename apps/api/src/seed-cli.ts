@@ -1,4 +1,4 @@
-import { seed } from "./seed/seed";
+import { listTenants, seed } from "./seed/seed";
 
 const url = process.env.DATABASE_ADMIN_URL;
 if (!url) {
@@ -6,11 +6,12 @@ if (!url) {
   process.exit(1);
 }
 seed(url)
-  .then((s) =>
+  .then(async (s) => {
     console.log(
       `seeded: ${s.created.join(", ") || "-"}; skipped (exists): ${s.skipped.join(", ") || "-"}`,
-    ),
-  )
+    );
+    for (const t of await listTenants(url)) console.log(`tenant ${t.id}  ${t.name}`);
+  })
   .catch((e) => {
     console.error(e);
     process.exit(1);
