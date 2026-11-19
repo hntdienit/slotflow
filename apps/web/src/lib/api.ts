@@ -1,3 +1,5 @@
+import { currentToken } from "./session";
+
 export class ApiFailure extends Error {
   constructor(
     readonly status: number,
@@ -40,6 +42,7 @@ export async function api<T>(
     method: init.method ?? (init.body ? "POST" : "GET"),
     headers: {
       "x-tenant-id": tenantId,
+      ...(currentToken() ? { authorization: `Bearer ${currentToken()}` } : {}),
       ...(init.body ? { "content-type": "application/json" } : {}),
       ...init.headers,
     },

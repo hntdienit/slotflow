@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  NotFoundException,
   ForbiddenException,
   Get,
   Headers,
@@ -13,6 +14,7 @@ import {
 } from "@nestjs/common";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { actingCustomer, assertBranch, Auth, type Principal } from "../auth/principal";
 import { TenantId } from "../tenant.decorator";
 import { WaitlistService } from "./waitlist.service";
 
@@ -49,36 +51,65 @@ export class WaitlistController {
   constructor(private readonly waitlist: WaitlistService) {}
 
   @Post()
-  async register(@TenantId() t: string, @Body() body: unknown) {
-    const out = await this.waitlist.register(t, parse(registerSchema, body));
+  async register(@TenantId() t: string, @Auth() p: Principal, @Body() body: unknown) {
+    const input = parse(registerSchema, body);
+    assertBranch(p, input.branchId);
+    const out = await this.waitlist.register(t, {
+      ...input,
+      customerId: actingCustomer(p, input.customerId)!,
+    });
     return out.entry;
   }
 
   @Get()
-  list(@TenantId() t: string, @Query() q: unknown) {
-    return this.waitlist.list(t, parse(listSchema, q));
+  list(@TenantId() t: string, @Auth() p: Principal, @Query() q: unknown) {
+    const f = parse(listSchema, q);
+    if (f.branchId) assertBranch(p, f.branchId);
+    else if (p.branchIds) throw new BadRequestException("branchId is required");
+    return this.waitlist.list(t, { ...f, customerId: actingCustomer(p, f.customerId) });
+  }
+
+  /** Customers see only their own entries and offers; a manager only their branches. Others look "not found". */
+  private async guard(p: Principal, owner: { customerId: string; branchId: string } | null) {
+    if (!owner) return;
+    if (p.role === "customer" && owner.customerId !== p.customerId) throw new NotFoundException();
+    if (p.branchIds && !p.branchIds.includes(owner.branchId)) throw new NotFoundException();
   }
 
   @Delete(":id")
-  cancel(@TenantId() t: string, @Param("id") p: string) {
+  async cancel(@TenantId() t: string, @Auth() a: Principal, @Param("id") p: string) {
+    await this.guard(a, await this.waitlist.entryOwner(t, id(p)));
     return this.waitlist.cancelEntry(t, id(p));
   }
 
   @Get("offers/:id")
-  offer(@TenantId() t: string, @Param("id") p: string) {
+  async offer(@TenantId() t: string, @Auth() a: Principal, @Param("id") p: string) {
+    await this.guard(a, await this.waitlist.offerOwner(t, id(p)));
     return this.waitlist.getOffer(t, id(p));
   }
 
   @Post("offers/:id/accept")
   @HttpCode(200)
-  accept(@TenantId() t: string, @Param("id") p: string, @Headers("x-actor") a?: string) {
-    return this.waitlist.accept(t, id(p), a ?? "customer");
+  async accept(
+    @TenantId() t: string,
+    @Auth() who: Principal,
+    @Param("id") p: string,
+    @Headers("x-actor") a?: string,
+  ) {
+    await this.guard(who, await this.waitlist.offerOwner(t, id(p)));
+    return this.waitlist.accept(t, id(p), who.userId ?? a ?? "customer");
   }
 
   @Post("offers/:id/decline")
   @HttpCode(200)
-  decline(@TenantId() t: string, @Param("id") p: string, @Headers("x-actor") a?: string) {
-    return this.waitlist.decline(t, id(p), a ?? "customer");
+  async decline(
+    @TenantId() t: string,
+    @Auth() who: Principal,
+    @Param("id") p: string,
+    @Headers("x-actor") a?: string,
+  ) {
+    await this.guard(who, await this.waitlist.offerOwner(t, id(p)));
+    return this.waitlist.decline(t, id(p), who.userId ?? a ?? "customer");
   }
 }
 

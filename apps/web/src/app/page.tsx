@@ -37,16 +37,20 @@ export default function BookingPage() {
 }
 
 function Booking() {
-  const { tenantId } = useSession();
+  const { tenantId, login } = useSession();
   const [msg, ctx] = message.useMessage();
   const branches = useGet<{ items: Branch[] }>("/admin/branches");
   const services = useGet<{ items: Service[] }>("/admin/services");
-  const customers = useGet<{ items: Customer[] }>("/admin/customers?limit=200");
+  const customers = useGet<{ items: Customer[] }>(
+    login?.role === "customer" ? null : "/admin/customers?limit=200",
+  );
   const [branchId, setBranchId] = useState<string>();
   const [serviceId, setServiceId] = useState<string>();
   const [date, setDate] = useState<Dayjs>(dayjs());
   const [slot, setSlot] = useState<Slot>();
-  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [picked, setCustomerId] = useState<string | null>(null);
+  // A logged-in customer always books as themselves (the API enforces it too).
+  const customerId = login?.customerId ?? picked;
   const [done, setDone] = useState<string>();
   const [busy, setBusy] = useState(false);
 
@@ -172,28 +176,30 @@ function Booking() {
                 ) : null}
               </Space>
             </Form.Item>
-            <Form.Item label="Khách">
-              <Space.Compact style={{ width: "100%" }}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  style={{ width: "100%" }}
-                  value={customerId}
-                  placeholder="Chọn khách có sẵn"
-                  onChange={(v) => setCustomerId(v)}
-                  options={customers.data?.items.map((c) => ({
-                    value: c.id,
-                    label: `${c.fullName}${c.email ? ` · ${c.email}` : ""}`,
-                  }))}
+            {login?.customerId ? null : (
+              <Form.Item label="Khách">
+                <Space.Compact style={{ width: "100%" }}>
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    style={{ width: "100%" }}
+                    value={customerId}
+                    placeholder="Chọn khách có sẵn"
+                    onChange={(v) => setCustomerId(v)}
+                    options={customers.data?.items.map((c) => ({
+                      value: c.id,
+                      label: `${c.fullName}${c.email ? ` · ${c.email}` : ""}`,
+                    }))}
+                  />
+                </Space.Compact>
+                <NewCustomer
+                  onCreated={(c) => {
+                    void customers.reload();
+                    setCustomerId(c.id);
+                  }}
                 />
-              </Space.Compact>
-              <NewCustomer
-                onCreated={(c) => {
-                  void customers.reload();
-                  setCustomerId(c.id);
-                }}
-              />
-            </Form.Item>
+              </Form.Item>
+            )}
             <Button
               type="primary"
               size="large"

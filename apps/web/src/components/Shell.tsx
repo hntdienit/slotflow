@@ -1,8 +1,9 @@
 "use client";
-import { Alert, Input, Layout, Menu, Space, Typography } from "antd";
+import { Alert, Button, Form, Input, Layout, Menu, Modal, Space, Typography } from "antd";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
 const ITEMS = [
@@ -15,10 +16,30 @@ const ITEMS = [
 
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
-  const { tenantId, setTenantId, ready } = useSession();
-  const active = ITEMS.map((i) => i.key).filter((k) =>
-    k === "/" ? path === "/" : path.startsWith(k),
-  );
+  const { tenantId, setTenantId, ready, login, setLogin } = useSession();
+  const [open, setOpen] = useState(false);
+  const [err, setErr] = useState<string>();
+  async function doLogin(v: { email: string; password: string }) {
+    try {
+      const r = await api<{ token: string; role: string; customerId: string | null }>(
+        tenantId,
+        "/auth/login",
+        { body: { tenantId, ...v } },
+      );
+      setLogin({ token: r.token, role: r.role, customerId: r.customerId });
+      setOpen(false);
+      setErr(undefined);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }
+  const items =
+    login?.role === "customer"
+      ? ITEMS.filter((i) => i.key === "/" || i.key === "/waitlist")
+      : ITEMS;
+  const active = items
+    .map((i) => i.key)
+    .filter((k) => (k === "/" ? path === "/" : path.startsWith(k)));
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Layout.Header style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -42,8 +63,34 @@ export function Shell({ children }: { children: ReactNode }) {
             onChange={(e) => setTenantId(e.target.value)}
             aria-label="tenant id"
           />
+          {login ? (
+            <Space>
+              <Typography.Text style={{ color: "#aaa" }}>{login.role}</Typography.Text>
+              <Button size="small" onClick={() => setLogin(null)}>
+                Đăng xuất
+              </Button>
+            </Space>
+          ) : (
+            <Button size="small" disabled={!tenantId} onClick={() => setOpen(true)}>
+              Đăng nhập
+            </Button>
+          )}
         </Space>
       </Layout.Header>
+      <Modal open={open} title="Đăng nhập" footer={null} onCancel={() => setOpen(false)}>
+        <Form layout="vertical" onFinish={(v) => void doLogin(v)}>
+          <Form.Item name="email" label="Email" rules={[{ required: true }]}>
+            <Input autoComplete="username" />
+          </Form.Item>
+          <Form.Item name="password" label="Mật khẩu" rules={[{ required: true }]}>
+            <Input.Password autoComplete="current-password" />
+          </Form.Item>
+          {err ? <Alert type="error" message={err} style={{ marginBottom: 12 }} /> : null}
+          <Button type="primary" htmlType="submit">
+            Đăng nhập
+          </Button>
+        </Form>
+      </Modal>
       <Layout.Content style={{ padding: 24, maxWidth: 1200, width: "100%", margin: "0 auto" }}>
         {ready && !tenantId ? (
           <Alert
