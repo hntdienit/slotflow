@@ -80,6 +80,8 @@ Interactive workflow diagrams, served by GitHub Pages (the JSON is each diagram'
 
 - Book safely and get reminders: [Open](https://hntdienit.github.io/slotflow/diagrams/use-case-booking.html) · [JSON](docs/diagrams/use-case-booking.json)
 - Cancel and offer the slot to the waitlist: [Open](https://hntdienit.github.io/slotflow/diagrams/use-case-waitlist.html) · [JSON](docs/diagrams/use-case-waitlist.json)
+- Book with the AI assistant: [Open](https://hntdienit.github.io/slotflow/diagrams/use-case-assistant.html) · [JSON](docs/diagrams/use-case-assistant.json)
+- Run appointments by role (login, reschedule, check-in, reminders): [Open](https://hntdienit.github.io/slotflow/diagrams/use-case-operations.html) · [JSON](docs/diagrams/use-case-operations.json)
 
 Sơ đồ luồng use case (xem trực tiếp trên GitHub Pages; file JSON là nguồn).
 

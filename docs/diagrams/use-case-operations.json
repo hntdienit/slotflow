@@ -1,0 +1,269 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Use case 4: Vận hành lịch hẹn theo vai trò",
+    "locale": "vi",
+    "quality_profile": "showcase",
+    "output": "docs/diagrams/use-case-operations.html"
+  },
+  "lanes": [
+    {
+      "id": "staff",
+      "label": "Nhân viên / quản lý"
+    },
+    {
+      "id": "api",
+      "label": "API (NestJS)"
+    },
+    {
+      "id": "db",
+      "label": "PostgreSQL"
+    },
+    {
+      "id": "worker",
+      "label": "Worker + LocalStack"
+    }
+  ],
+  "phases": [
+    {
+      "id": "access",
+      "label": "Đăng nhập và phạm vi",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "manage",
+      "label": "Đổi lịch",
+      "fromCol": 2,
+      "toCol": 2,
+      "variant": "emphasis"
+    },
+    {
+      "id": "visit",
+      "label": "Trong ngày hẹn",
+      "fromCol": 3,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "after",
+      "label": "Cập nhật nhắc lịch",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "s_login",
+    "a_auth",
+    "s_week",
+    "a_scope",
+    "s_move",
+    "a_move",
+    "s_visit",
+    "a_visit",
+    "d_outbox",
+    "w_relay",
+    "w_remind"
+  ],
+  "nodes": [
+    {
+      "id": "s_login",
+      "lane": "staff",
+      "col": 0,
+      "type": "external",
+      "label": "Đăng nhập",
+      "sublabel": "email và mật khẩu"
+    },
+    {
+      "id": "s_week",
+      "lane": "staff",
+      "col": 1,
+      "type": "frontend",
+      "label": "Xem lịch tuần",
+      "sublabel": "theo chi nhánh"
+    },
+    {
+      "id": "s_move",
+      "lane": "staff",
+      "col": 2,
+      "type": "frontend",
+      "label": "Đổi lịch",
+      "sublabel": "giờ mới hoặc nhân viên khác"
+    },
+    {
+      "id": "s_visit",
+      "lane": "staff",
+      "col": 3,
+      "type": "frontend",
+      "label": "Check-in, hoàn tất, no-show",
+      "sublabel": "khi khách đến"
+    },
+    {
+      "id": "a_auth",
+      "lane": "api",
+      "col": 0,
+      "type": "security",
+      "label": "Cấp JWT",
+      "sublabel": "vai trò, chi nhánh được giao"
+    },
+    {
+      "id": "a_scope",
+      "lane": "api",
+      "col": 1,
+      "type": "security",
+      "label": "Giới hạn phạm vi",
+      "sublabel": "manager chỉ chi nhánh của mình"
+    },
+    {
+      "id": "a_move",
+      "lane": "api",
+      "col": 2,
+      "type": "backend",
+      "label": "Đổi lịch",
+      "sublabel": "kiểm tra giờ làm, nhân viên, phòng"
+    },
+    {
+      "id": "a_visit",
+      "lane": "api",
+      "col": 3,
+      "type": "backend",
+      "label": "Kiểm tra thời điểm",
+      "sublabel": "check-in từ 60 phút trước"
+    },
+    {
+      "id": "d_excl",
+      "lane": "db",
+      "col": 2,
+      "type": "security",
+      "label": "Exclusion constraint",
+      "sublabel": "chặn đặt trùng"
+    },
+    {
+      "id": "d_outbox",
+      "lane": "db",
+      "col": 3,
+      "type": "database",
+      "label": "Outbox",
+      "sublabel": "booking.* đổi trạng thái"
+    },
+    {
+      "id": "w_relay",
+      "lane": "worker",
+      "col": 4,
+      "type": "messagebus",
+      "label": "Outbox relay → SQS",
+      "sublabel": "gửi trước, commit sau"
+    },
+    {
+      "id": "w_remind",
+      "lane": "worker",
+      "col": 5,
+      "type": "backend",
+      "label": "Dời hoặc bỏ nhắc lịch",
+      "sublabel": "dựng lại theo trạng thái hiện tại"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "s_login",
+      "to": "a_auth",
+      "label": "đăng nhập",
+      "variant": "default"
+    },
+    {
+      "id": "e2",
+      "from": "a_auth",
+      "to": "s_week",
+      "label": "token",
+      "variant": "default",
+      "role": "return"
+    },
+    {
+      "id": "e3",
+      "from": "s_week",
+      "to": "a_scope",
+      "label": "xem lịch",
+      "variant": "default"
+    },
+    {
+      "id": "e4",
+      "from": "a_scope",
+      "to": "s_move",
+      "label": "lịch trong phạm vi",
+      "variant": "default",
+      "role": "return"
+    },
+    {
+      "id": "e5",
+      "from": "s_move",
+      "to": "a_move",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e6",
+      "from": "a_move",
+      "to": "d_excl",
+      "label": "ghi giờ mới",
+      "variant": "security",
+      "role": "branch"
+    },
+    {
+      "id": "e7",
+      "from": "a_move",
+      "to": "s_visit",
+      "label": "lịch mới",
+      "variant": "default"
+    },
+    {
+      "id": "e8",
+      "from": "s_visit",
+      "to": "a_visit",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e9",
+      "from": "a_visit",
+      "to": "d_outbox",
+      "label": "ghi trạng thái",
+      "variant": "default"
+    },
+    {
+      "id": "e10",
+      "from": "d_outbox",
+      "to": "w_relay",
+      "variant": "dashed"
+    },
+    {
+      "id": "e11",
+      "from": "w_relay",
+      "to": "w_remind",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Ai làm được gì",
+      "items": [
+        "Chủ phòng khám: mọi thao tác, kể cả tạo và xóa chi nhánh",
+        "Quản lý: danh mục và lịch của chi nhánh được giao",
+        "Nhân viên: xem lịch, check-in, no-show, hoàn tất",
+        "Khách: chỉ lịch và danh sách chờ của chính mình"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "An toàn",
+      "items": [
+        "Đăng nhập tối đa 10 lần mỗi phút; no-show chỉ ghi sau 10 phút",
+        "Ngoài phạm vi chi nhánh trả 404",
+        "Route chưa khai báo quyền bị từ chối ở chế độ jwt",
+        "RLS trong Postgres vẫn là lớp cô lập tenant cuối cùng",
+        "Chế độ dev mặc định tin header, không dùng ở production"
+      ]
+    }
+  ]
+}
