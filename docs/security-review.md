@@ -21,11 +21,10 @@ still open. Everything here is fake data in a demo project.
 
 ## Open findings
 
-1. **Dependency advisories (`pnpm audit --prod`, 2026-11-19): 19, of which 9 high.** The high ones are `multer`
-   (via NestJS 10's `platform-express`; no route accepts multipart uploads), `body-parser`, and `zod` 3.x (memory use on
-   oversized constrained collections; fixed only in zod 4). Mitigation today: no upload routes, the 100 kB body limit,
-   and a bounded `limit` on lists. Real fix: move to NestJS 11 and zod 4. Not done in M8 because it is a migration with
-   its own risk, and it should not be bundled with feature work.
+1. **Dependency advisories.** `pnpm audit --prod` reports none since the move to NestJS 11 and zod 4 (it reported 19, 9 high,
+   before: `multer`, `body-parser`, and zod 3.x). `pnpm audit` including dev dependencies still reports 15, all in the
+   `vitest` 2.x chain (`vitest`, `vite`, `esbuild`, `tinypool`). They affect the test runner and dev server only, never the
+   production image. Fix: upgrade vitest in its own change.
 2. **`AUTH_MODE=dev` is the default** so a fresh clone runs. It trusts headers and must never be exposed. The guard logs a
    warning; production configuration must set `jwt`. A safer default would break the quick start.
 3. **JWT has no revocation** and lives 8 h by default; no refresh tokens, no password reset or sign-up.

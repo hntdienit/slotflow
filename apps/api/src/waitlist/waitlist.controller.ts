@@ -39,7 +39,7 @@ const releaseSchema = z.object({
   endAt: z.coerce.date().optional(),
 });
 
-function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, data: unknown): T {
+function parse<T>(schema: z.ZodType<T>, data: unknown): T {
   const r = schema.safeParse(data);
   if (!r.success) throw new BadRequestException(r.error.issues);
   return r.data;
