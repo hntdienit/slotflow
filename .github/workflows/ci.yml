@@ -65,7 +65,7 @@ jobs:
       - run: pnpm --filter @slotflow/core --filter @slotflow/llm build && pnpm --filter @slotflow/api build
       # Next bakes the /api proxy target at build time; the E2E API listens on 3100.
       - run: API_URL=http://localhost:3100 pnpm --filter @slotflow/web build
-      - run: pnpm --filter @slotflow/e2e test
+      - run: pnpm --filter @slotflow/e2e e2e
         env: { CHROME_PATH: /usr/bin/google-chrome }
       - uses: actions/upload-artifact@v4
         if: failure()
