@@ -34,7 +34,7 @@ Web demo: `pnpm --filter @slotflow/api seed` (prints tenant ids; seeded logins `
 password `demo1234`), then `pnpm --filter @slotflow/api dev` and `pnpm --filter @slotflow/web dev`; paste a tenant id in the top bar.
 With `AUTH_MODE=jwt` and a `JWT_SECRET` the web app asks you to log in (ADR-009).
 
-E2E: `pnpm --filter @slotflow/api build && API_URL=http://localhost:3100 pnpm --filter @slotflow/web build && pnpm --filter @slotflow/e2e test`
+E2E: `pnpm --filter @slotflow/api build && API_URL=http://localhost:3100 pnpm --filter @slotflow/web build && pnpm --filter @slotflow/e2e e2e`
 (needs Postgres and Chrome). Load test: `k6 run -e TENANT=<id> scripts/load/k6.js` (see `docs/benchmarks.md`).
 
 ## Layout
