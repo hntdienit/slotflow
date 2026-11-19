@@ -1,6 +1,6 @@
 "use client";
 import { Button, Card, Input, List, Space, Typography } from "antd";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
@@ -31,6 +31,11 @@ export function Chat({
   const [text, setText] = useState("");
   const [conv, setConv] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  // Keep the newest message in view.
+  useEffect(() => {
+    box.current?.scrollTo({ top: box.current.scrollHeight });
+  }, [msgs]);
 
   async function send() {
     const message = text.trim();
@@ -55,25 +60,26 @@ export function Chat({
 
   return (
     <Card title="Trợ lý đặt lịch" size="small">
-      <List
-        size="small"
-        dataSource={msgs}
-        style={{ maxHeight: 360, overflow: "auto", marginBottom: 12 }}
-        renderItem={(m) => (
-          <List.Item style={{ justifyContent: m.from === "me" ? "flex-end" : "flex-start" }}>
-            <Typography.Text
-              style={{
-                whiteSpace: "pre-line",
-                background: m.from === "me" ? "#e6f4ff" : "#f5f5f5",
-                padding: "4px 10px",
-                borderRadius: 8,
-              }}
-            >
-              {m.text}
-            </Typography.Text>
-          </List.Item>
-        )}
-      />
+      <div ref={box} style={{ maxHeight: 360, overflow: "auto", marginBottom: 12 }}>
+        <List
+          size="small"
+          dataSource={msgs}
+          renderItem={(m) => (
+            <List.Item style={{ justifyContent: m.from === "me" ? "flex-end" : "flex-start" }}>
+              <Typography.Text
+                style={{
+                  whiteSpace: "pre-line",
+                  background: m.from === "me" ? "#e6f4ff" : "#f5f5f5",
+                  padding: "4px 10px",
+                  borderRadius: 8,
+                }}
+              >
+                {m.text}
+              </Typography.Text>
+            </List.Item>
+          )}
+        />
+      </div>
       <Space.Compact style={{ width: "100%" }}>
         <Input
           value={text}

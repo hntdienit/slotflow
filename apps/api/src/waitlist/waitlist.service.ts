@@ -92,6 +92,20 @@ export class WaitlistService {
     );
   }
 
+  /** Who owns an entry / an offer, for access checks (null when it does not exist). */
+  async entryOwner(tenantId: string, entryId: string) {
+    return this.db.withTenant(tenantId, async (tx) => {
+      const e = await tx.waitlistEntry.findUnique({ where: { id: entryId } });
+      return e ? { customerId: e.customerId, branchId: e.branchId } : null;
+    });
+  }
+  async offerOwner(tenantId: string, offerId: string) {
+    return this.db.withTenant(tenantId, async (tx) => {
+      const o = await tx.waitlistOffer.findUnique({ where: { id: offerId } });
+      return o ? this.entryOwner(tenantId, o.entryId) : null;
+    });
+  }
+
   /** Leaves the queue; an open offer is declined first so its hold is freed for the next person. */
   async cancelEntry(tenantId: string, entryId: string) {
     const open = await this.db.withTenant(tenantId, async (tx) => {

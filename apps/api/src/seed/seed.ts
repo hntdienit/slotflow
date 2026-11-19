@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { hashPassword } from "../auth/token";
 import { PrismaClient } from "../generated/prisma/client";
+
+/** Password of every seeded demo account. */
+export const DEMO_PASSWORD = "demo1234";
 
 /** Postgres `time` is a Date on 1970-01-01 UTC in Prisma. */
 const tm = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00Z`);
@@ -280,6 +284,19 @@ async function seedTenant(prisma: PrismaClient, def: TenantDef, rand: () => numb
           email: `khach${i + 1}@${def.slug}.example`,
           phone: `09${String(10000000 + Math.floor(rand() * 89999999))}`,
         })),
+      });
+
+      // Demo logins (fake data, shared password) so AUTH_MODE=jwt can be tried straight after seeding.
+      const passwordHash = hashPassword(DEMO_PASSWORD);
+      const mk = (role: string) =>
+        tx.user.create({ data: { email: `${role}@${def.slug}.example`, role, passwordHash } });
+      await mk("owner");
+      const manager = await mk("manager");
+      await tx.managerBranch.create({ data: { userId: manager.id, branchId: branchIds[0]! } });
+      await mk("staff");
+      const cu = await mk("customer");
+      await tx.customer.create({
+        data: { fullName: "Khách Demo", email: `customer@${def.slug}.example`, userId: cu.id },
       });
     },
     { timeout: 60_000, maxWait: 10_000 },

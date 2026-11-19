@@ -70,13 +70,14 @@ describe("assistant", () => {
     const r1 = await say(w.tenant, a, `đặt Consult ngày ${DATE} sau 10 giờ sáng`);
     expect(r1.status).toBe(200);
     expect(r1.body.awaiting).toBe("choice");
-    expect(r1.body.options.length).toBeGreaterThan(0);
+    expect(r1.body.options.length).toBe(3); // one busy day still offers three choices
     expect(r1.body.options[0].startLocal.slice(11, 16) >= "10:00").toBe(true);
     expect(await bookings(w.tenant)).toHaveLength(0);
 
     const cid = r1.body.conversationId;
     const r2 = await say(w.tenant, a, "1", cid);
     expect(r2.body.awaiting).toBe("confirmation");
+    expect(r2.body.reply).toContain("xác nhận"); // a bare "1" must not flip the reply to English
     expect(await bookings(w.tenant)).toHaveLength(0); // choosing is not confirming
 
     const r3 = await say(w.tenant, a, "có", cid);

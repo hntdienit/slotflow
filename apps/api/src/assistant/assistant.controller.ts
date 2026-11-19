@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Headers, HttpCode, Post } from "@nestjs/common";
 import { z } from "zod";
+import { Auth, type Principal } from "../auth/principal";
 import { TenantId } from "../tenant.decorator";
 import { AssistantService } from "./assistant.service";
 
@@ -21,11 +22,16 @@ export class AssistantController {
   @HttpCode(200)
   message(
     @TenantId() tenantId: string,
-    @Headers("x-customer-id") customerId: string | undefined,
+    @Auth() p: Principal,
+    @Headers("x-customer-id") header: string | undefined,
     @Body() body: unknown,
   ) {
-    const cid = uuid.safeParse(customerId);
-    if (!cid.success) throw new BadRequestException("Missing or invalid x-customer-id");
+    // Logged in: the customer is the token's. Dev mode: the x-customer-id header.
+    const cid = uuid.safeParse(p.dev ? header : p.customerId);
+    if (!cid.success)
+      throw new BadRequestException(
+        "No customer: log in as a customer (or send x-customer-id in dev mode)",
+      );
     const r = bodySchema.safeParse(body);
     if (!r.success) throw new BadRequestException(r.error.issues);
     return this.assistant.message(tenantId, cid.data, r.data.message, r.data.conversationId);
