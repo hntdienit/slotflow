@@ -21,10 +21,9 @@ still open. Everything here is fake data in a demo project.
 
 ## Open findings
 
-1. **Dependency advisories.** `pnpm audit --prod` reports none since the move to NestJS 11 and zod 4 (it reported 19, 9 high,
-   before: `multer`, `body-parser`, and zod 3.x). `pnpm audit` including dev dependencies still reports 15, all in the
-   `vitest` 2.x chain (`vitest`, `vite`, `esbuild`, `tinypool`). They affect the test runner and dev server only, never the
-   production image. Fix: upgrade vitest in its own change.
+1. **Dependency advisories: none.** `pnpm audit` (production and dev dependencies) reports no known vulnerabilities after the
+   moves to NestJS 11, zod 4 (previously 19 advisories, 9 high) and vitest 5 with vite 7 (previously 15 dev-only ones in the
+   vitest 2.x chain). This is a point-in-time result; CI does not run `pnpm audit` yet.
 2. **`AUTH_MODE=dev` is the default** so a fresh clone runs. It trusts headers and must never be exposed. The guard logs a
    warning; production configuration must set `jwt`. A safer default would break the quick start.
 3. **JWT has no revocation** and lives 8 h by default; no refresh tokens, no password reset or sign-up.
