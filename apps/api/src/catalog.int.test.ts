@@ -144,16 +144,13 @@ describe("catalog CRUD (HTTP, real Postgres + RLS)", () => {
       endLocal: "09:00",
     });
     expect(badRange.status).toBe(400);
-    const ghostOwner = await http()
-      .post("/admin/working-hours")
-      .set(as(a))
-      .send({
-        ownerType: "staff",
-        ownerId: st.id.replace(/.$/, "0"),
-        weekday: 1,
-        startLocal: "09:00",
-        endLocal: "10:00",
-      });
+    const ghostOwner = await http().post("/admin/working-hours").set(as(a)).send({
+      ownerType: "staff",
+      ownerId: "00000000-0000-4000-8000-000000000000", // fixed: deriving it from st.id collided 1 time in 16
+      weekday: 1,
+      startLocal: "09:00",
+      endLocal: "10:00",
+    });
     expect(ghostOwner.status).toBe(422);
 
     const off = await http().post("/admin/time-off").set(as(a)).send({
