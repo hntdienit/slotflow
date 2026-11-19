@@ -90,7 +90,7 @@ thành công, tải k6 hơn 9.000 request tranh chấp không tạo ra lịch ch
 
 ## Điểm yếu (nói trước, đừng để bị hỏi)
 
-- Dependency còn advisory (multer, body-parser, zod 3.x qua NestJS 10): kế hoạch nâng NestJS 11 + zod 4. Chi tiết ở `docs/security-review.md`.
+- `pnpm audit --prod` sạch sau khi nâng NestJS 11 + zod 4. Còn 15 advisory ở chuỗi vitest 2.x (chỉ dev/test, không vào image chạy thật). Chi tiết ở `docs/security-review.md`.
 - `AUTH_MODE=dev` là mặc định cho dễ chạy; production phải đặt `jwt`. Token chưa thu hồi được, rate limit nằm trong bộ nhớ.
 - Chưa có trang giám sát/thông báo, chưa kéo thả đổi lịch, chưa có đăng ký/đặt lại mật khẩu.
 - Benchmark chạy một máy 2 vCPU chung với k6, Postgres, Redis; không phải số năng lực thực.

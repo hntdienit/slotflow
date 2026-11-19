@@ -37,7 +37,7 @@ const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
-function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, data: unknown): T {
+function parse<T>(schema: z.ZodType<T>, data: unknown): T {
   const r = schema.safeParse(data);
   if (!r.success) throw new BadRequestException(r.error.issues);
   return r.data;
