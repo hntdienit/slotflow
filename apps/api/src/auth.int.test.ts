@@ -228,6 +228,25 @@ describe("authorization", () => {
     expect((await create(o)).status).toBe(201);
   });
 
+  it("rate limits booking creation per customer but not staff", async () => {
+    const w = await world("authz6");
+    const t1 = await tok(w.tenant, "customer@x.test");
+    const o = await tok(w.tenant, "owner@x.test");
+    process.env.BOOKING_RATE_PER_MIN = "3";
+    try {
+      const codes: number[] = [];
+      for (let i = 0; i < 5; i++)
+        codes.push((await bookAs(t1, w.branches[0]!, w.svc, w.customers[0]!, "09:00")).status);
+      expect(codes.filter((c) => c === 429)).toHaveLength(2);
+      for (let i = 0; i < 5; i++)
+        expect((await bookAs(o, w.branches[0]!, w.svc, w.customers[0]!, "09:00")).status).not.toBe(
+          429,
+        );
+    } finally {
+      delete process.env.BOOKING_RATE_PER_MIN;
+    }
+  });
+
   it("ignores x-tenant-id and cannot reach another tenant", async () => {
     const a = await world("authz4a");
     const b = await world("authz4b");

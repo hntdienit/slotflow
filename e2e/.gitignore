@@ -1,0 +1,4 @@
+node_modules
+frames
+.tenant.json
+test-results

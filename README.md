@@ -10,8 +10,12 @@ guarded AI booking assistant (Vietnamese + English).
 
 ## Status
 
-Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) **M4** (outbox, reminders, hold sweeper, SQS queues with dead letters, SES email, SMS mock) **M5** (waitlist: FIFO offers backed by holds, accept/decline/expiry, notifications) and **M6** (AI booking assistant with mandatory confirmation, offline mock provider and eval set) and **M7** (web: booking page with assistant chat, week dashboard, waitlist, admin, concurrency simulator; see `apps/web/README.md`) done. Roadmap: catalog & RLS → availability engine → safe booking →
+Milestones **M0** (scaffold), **M1** (catalog, multi-tenant RLS, seed), **M2** (availability engine) and **M3** (safe booking: holds, idempotency, reschedule, cancel policy) **M4** (outbox, reminders, hold sweeper, SQS queues with dead letters, SES email, SMS mock) **M5** (waitlist: FIFO offers backed by holds, accept/decline/expiry, notifications) and **M6** (AI booking assistant with mandatory confirmation, offline mock provider and eval set) **M7** (web: booking page with assistant chat, week dashboard, waitlist, admin, concurrency simulator; see `apps/web/README.md`) and **M8** (JWT auth and roles, Playwright E2E, k6 load test, security review, architecture and interview notes) done. Roadmap: catalog & RLS → availability engine → safe booking →
 background jobs → waitlist → AI assistant → UI → polish. All data is fake.
+
+![demo](docs/media/demo.gif)
+
+_Booking page, assistant chat, week view, reschedule and the concurrency simulator, captured from the Playwright run._
 
 ## Quick start
 
@@ -26,9 +30,16 @@ curl -H 'x-tenant-id: <tenant uuid>' "localhost:3000/branches/<branch id>/availa
 Local dev: `pnpm install` (generates the Prisma client) then `pnpm lint && pnpm typecheck && pnpm test`
 (integration tests need a local PostgreSQL; set `TEST_ADMIN_URL`).
 
+Web demo: `pnpm --filter @slotflow/api seed` (prints tenant ids; seeded logins `owner|manager|staff|customer@<tenant-slug>.example`,
+password `demo1234`), then `pnpm --filter @slotflow/api dev` and `pnpm --filter @slotflow/web dev`; paste a tenant id in the top bar.
+With `AUTH_MODE=jwt` and a `JWT_SECRET` the web app asks you to log in (ADR-009).
+
+E2E: `pnpm --filter @slotflow/api build && API_URL=http://localhost:3100 pnpm --filter @slotflow/web build && pnpm --filter @slotflow/e2e test`
+(needs Postgres and Chrome). Load test: `k6 run -e TENANT=<id> scripts/load/k6.js` (see `docs/benchmarks.md`).
+
 ## Layout
 
-`apps/api` (NestJS) · `apps/worker` (SQS/SES) · `apps/web` (Next.js, M7) · `packages/core` (pure
+`apps/api` (NestJS) · `apps/worker` (SQS/SES) · `apps/web` (Next.js) · `packages/core` (pure
 domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 
 ## Design decisions
@@ -41,6 +52,9 @@ domain) · `packages/llm` (assistant providers, M6) · `docs/adr` (decisions).
 - [ADR-006 Background jobs: outbox, SQS, SES](docs/adr/0006-background-jobs.md)
 - [ADR-007 Waitlist: FIFO offers backed by real holds](docs/adr/0007-waitlist.md)
 - [ADR-008 AI booking assistant: extraction only, server-side confirmation](docs/adr/0008-assistant.md)
+- [ADR-009 Authentication and authorization](docs/adr/0009-authentication.md)
+
+More: [architecture](docs/architecture.md) · [security review](docs/security-review.md) · [benchmarks](docs/benchmarks.md) · [interview notes (VI)](docs/interview-notes.md)
 
 ## AI assistant
 

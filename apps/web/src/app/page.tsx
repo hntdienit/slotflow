@@ -86,6 +86,8 @@ function Booking() {
         headers: { "idempotency-key": key },
       });
       setDone(b.id);
+      setSlot(undefined);
+      void avail.reload(); // the booked time is no longer free
       msg.success("Đã đặt lịch");
     } catch (e) {
       msg.error((e as Error).message);

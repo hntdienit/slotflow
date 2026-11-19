@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -48,6 +49,22 @@ export class AuthGuard implements CanActivate {
     }
   }
 
+  private readonly bookingHits = new Map<string, number[]>();
+
+  /** Customers may create at most BOOKING_RATE_PER_MIN (default 30) bookings or holds a minute; staff are exempt. */
+  private limitBooking(key: string) {
+    const limit = Number(process.env.BOOKING_RATE_PER_MIN ?? 30);
+    const now = Date.now();
+    const recent = (this.bookingHits.get(key) ?? []).filter((t) => now - t < 60_000);
+    if (recent.length >= limit)
+      throw new HttpException(
+        { statusCode: 429, code: "RATE_LIMITED", message: "Too many booking requests" },
+        429,
+      );
+    recent.push(now);
+    this.bookingHits.set(key, recent);
+  }
+
   canActivate(ctx: ExecutionContext): boolean {
     const req = ctx.switchToHttp().getRequest();
     const path: string = String(req.path ?? req.url).split("?")[0]!;
@@ -81,6 +98,8 @@ export class AuthGuard implements CanActivate {
     const c = token ? verifyToken(token, process.env.JWT_SECRET!) : null;
     if (!c) throw new UnauthorizedException("Missing, invalid or expired token");
     if (!rule[2].includes(c.role)) throw new ForbiddenException("Your role cannot do this");
+    if (c.role === "customer" && req.method === "POST" && /^\/bookings(\/holds)?$/.test(path))
+      this.limitBooking(`${c.tid}:${c.sub}`);
     req.principal = {
       tenantId: c.tid,
       userId: c.sub,

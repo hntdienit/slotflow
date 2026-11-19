@@ -82,8 +82,9 @@ export class AssistantService {
       const l = st.lang ?? "en";
       return this.save(tenantId, conv.id, st, T.rephrase(l));
     }
-    const lang: Lang = ex.language;
-    st.lang = lang;
+    // A bare "2" or "ok" carries no language evidence, so replies keep the language the conversation started in;
+    // only a full request (intent book) may switch it.
+    st.lang = ex.intent === "book" || !st.lang ? ex.language : st.lang;
 
     const out = await this.step(tenantId, customerId, conv.id, st, ex, catalog, now);
     return this.save(tenantId, conv.id, st, out.reply, out.booking);
@@ -342,17 +343,24 @@ function fits(s: SlotDto, st: State, now: Date): boolean {
   return true;
 }
 
-/** Up to three options: the earliest, plus the earliest on later days, so the choice is not three near-identical times. */
+/**
+ * Up to three options: the earliest slot of each of the next days first, so the choice is not three
+ * near-identical times; if the customer asked for one day, the earliest slots of that day.
+ */
 function spread(slots: SlotDto[]): SlotDto[] {
   const sorted = [...slots].sort((a, b) => a.startAt.localeCompare(b.startAt));
-  const out: SlotDto[] = [];
   const days = new Set<string>();
+  const firsts: SlotDto[] = [];
+  const rest: SlotDto[] = [];
   for (const s of sorted) {
     const day = s.startLocal.slice(0, 10);
-    if (days.has(day) && sorted.length > MAX_OPTIONS * 4) continue;
-    out.push(s);
-    days.add(day);
-    if (out.length === MAX_OPTIONS) break;
+    if (days.has(day)) rest.push(s);
+    else {
+      days.add(day);
+      firsts.push(s);
+    }
   }
-  return out;
+  return [...firsts, ...rest]
+    .slice(0, MAX_OPTIONS)
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
 }
