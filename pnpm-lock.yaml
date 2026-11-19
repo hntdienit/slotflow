@@ -53,6 +53,9 @@ importers:
       '@slotflow/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@slotflow/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       ioredis:
         specifier: ^5.4.1
         version: 5.11.1
@@ -135,7 +138,15 @@ importers:
         specifier: ^4.10.2
         version: 4.10.2
 
-  packages/llm: {}
+  packages/llm:
+    dependencies:
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
 
 packages:
 
