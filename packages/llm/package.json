@@ -2,9 +2,18 @@
   "name": "@slotflow/llm",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "typecheck": "echo 'llm: implemented in M6'",
-    "test": "echo 'llm: implemented in M6'"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "eval": "tsx eval/run.ts"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
   }
 }

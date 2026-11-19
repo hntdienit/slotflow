@@ -28,6 +28,7 @@
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "^7.10.1",
     "@slotflow/core": "workspace:*",
+    "@slotflow/llm": "workspace:*",
     "ioredis": "^5.4.1",
     "pg": "^8.13.1",
     "pino": "^9.5.0",

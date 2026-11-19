@@ -9,9 +9,10 @@
   "scripts": {
     "build": "pnpm -r build",
     "lint": "eslint .",
-    "typecheck": "pnpm --filter @slotflow/core build && pnpm -r typecheck",
-    "test": "pnpm --filter @slotflow/core build && pnpm -r test",
-    "format": "prettier --write ."
+    "typecheck": "pnpm --filter @slotflow/core --filter @slotflow/llm build && pnpm -r typecheck",
+    "test": "pnpm --filter @slotflow/core --filter @slotflow/llm build && pnpm -r test",
+    "format": "prettier --write .",
+    "eval": "pnpm --filter @slotflow/llm eval"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

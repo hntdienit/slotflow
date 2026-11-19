@@ -266,3 +266,15 @@ model SmsMessage {
 
   @@map("sms_messages")
 }
+
+model AssistantConversation {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @default(dbgenerated("app_tenant_id()")) @map("tenant_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  state      Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  expiresAt  DateTime @default(dbgenerated("(now() + '00:30:00'::interval)")) @map("expires_at") @db.Timestamptz(6)
+
+  @@map("assistant_conversations")
+}

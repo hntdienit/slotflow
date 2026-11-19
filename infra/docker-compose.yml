@@ -54,7 +54,8 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key}
       REDIS_URL: redis://redis:6379
       PORT: "3000"
-      LLM_PROVIDER: mock
+      ASSISTANT_PROVIDER: ${ASSISTANT_PROVIDER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports: ["3000:3000"]
     depends_on:
       migrate: { condition: service_completed_successfully }

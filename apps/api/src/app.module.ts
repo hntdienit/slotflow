@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { AssistantModule } from "./assistant/assistant.module";
 import { AvailabilityModule } from "./availability/availability.module";
 import { BookingModule } from "./booking/booking.module";
 import { CacheModule } from "./cache/cache.module";
@@ -16,6 +17,7 @@ import { HealthService } from "./health.service";
     AvailabilityModule,
     BookingModule,
     WaitlistModule,
+    AssistantModule,
   ],
   controllers: [HealthController],
   providers: [HealthService],
