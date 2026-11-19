@@ -61,6 +61,11 @@ services:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
 
+  web:
+    build: { context: .., dockerfile: infra/Dockerfile, target: web }
+    ports: ["3001:3001"]
+    depends_on: [api]
+
   worker:
     build: { context: .., dockerfile: infra/Dockerfile, target: worker }
     environment:
